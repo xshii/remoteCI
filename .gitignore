@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+
+# 数据目录
+data/
+*.log
+
+# 临时文件
+*.tar.gz
+*.tar
+*.zip
+
+# 环境变量
+.env
+
+# Redis dump
+dump.rdb

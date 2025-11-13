@@ -1,0 +1,85 @@
+# Python项目 - GitHub Actions示例
+# 场景：机器学习项目需要GPU训练，远程CI有GPU资源
+
+name: Remote CI Build
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  # 本地快速检查
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      - name: Lint
+        run: |
+          pip install flake8 black
+          flake8 .
+          black --check .
+
+  # 远程训练和测试（上传模式）
+  remote-train:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: lint
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Submit to Remote CI
+        env:
+          REMOTE_CI_API: ${{ secrets.REMOTE_CI_API }}
+          REMOTE_CI_TOKEN: ${{ secrets.REMOTE_CI_TOKEN }}
+        run: |
+          # 下载客户端脚本
+          curl -O https://raw.githubusercontent.com/your-org/remoteCI/main/client/submit-upload.sh
+
+          # 提交任务
+          bash submit-upload.sh "
+            pip install -r requirements.txt &&
+            python train.py --epochs 100 &&
+            python test.py &&
+            pytest tests/
+          "
+
+      - name: Download model artifacts
+        if: success()
+        run: |
+          # 这里可以添加从远程CI下载训练好的模型的逻辑
+          echo "Model trained successfully"
+
+  # 远程GPU训练（rsync模式，需要配置SSH）
+  remote-gpu-train:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ secrets.REMOTE_CI_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Submit GPU Training
+        env:
+          REMOTE_CI_HOST: ${{ secrets.REMOTE_CI_HOST }}
+          REMOTE_CI_API: ${{ secrets.REMOTE_CI_API }}
+          REMOTE_CI_TOKEN: ${{ secrets.REMOTE_CI_TOKEN }}
+        run: |
+          curl -O https://raw.githubusercontent.com/your-org/remoteCI/main/client/submit-rsync.sh
+
+          bash submit-rsync.sh ml-project "
+            pip install -r requirements.txt &&
+            CUDA_VISIBLE_DEVICES=0 python train.py --epochs 200 --batch-size 64 &&
+            python evaluate.py
+          "

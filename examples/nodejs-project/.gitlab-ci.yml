@@ -1,0 +1,71 @@
+# Node.js项目 - GitLab CI示例
+# 场景：前端项目需要长时间的E2E测试
+
+variables:
+  REMOTE_CI_HOST: "ci-user@192.168.1.100"
+  REMOTE_CI_API: "http://192.168.1.100:5000"
+  # REMOTE_CI_TOKEN 在 GitLab CI/CD Settings -> Variables 中配置
+
+stages:
+  - build
+  - test
+  - deploy
+
+# 本地快速测试（公共CI）
+quick_test:
+  stage: test
+  timeout: 5m
+  script:
+    - npm install
+    - npm run lint
+    - npm run test:unit
+  only:
+    - merge_requests
+
+# 远程完整测试（rsync模式）
+remote_test:
+  stage: test
+  timeout: 30m
+  before_script:
+    # 配置SSH（首次运行需要）
+    - mkdir -p ~/.ssh
+    - echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
+    - chmod 600 ~/.ssh/id_rsa
+    - ssh-keyscan -H 192.168.1.100 >> ~/.ssh/known_hosts
+  script:
+    # 使用rsync模式提交任务
+    - |
+      export REMOTE_CI_HOST="$REMOTE_CI_HOST"
+      export REMOTE_CI_API="$REMOTE_CI_API"
+      export REMOTE_CI_TOKEN="$REMOTE_CI_TOKEN"
+
+      bash client/submit-rsync.sh $CI_PROJECT_NAME "
+        npm install &&
+        npm run build &&
+        npm run test:e2e &&
+        npm run test:integration
+      "
+  only:
+    - main
+    - develop
+
+# 远程构建部署（上传模式示例）
+remote_build:
+  stage: build
+  timeout: 30m
+  script:
+    - |
+      export REMOTE_CI_API="$REMOTE_CI_API"
+      export REMOTE_CI_TOKEN="$REMOTE_CI_TOKEN"
+
+      bash client/submit-upload.sh "
+        npm install &&
+        npm run build &&
+        tar -czf dist.tar.gz dist/
+      "
+  artifacts:
+    paths:
+      - dist.tar.gz
+    expire_in: 1 week
+  only:
+    - tags

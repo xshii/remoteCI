@@ -1,0 +1,20 @@
+#!/bin/bash
+##############################################################################
+# 公共CI配置文件示例
+# 复制此文件为 config.sh 并修改配置
+##############################################################################
+
+# 远程CI服务器SSH地址（rsync模式使用）
+export REMOTE_CI_HOST="ci-user@192.168.1.100"
+
+# 远程CI API地址
+export REMOTE_CI_API="http://192.168.1.100:5000"
+
+# API认证Token
+export REMOTE_CI_TOKEN="your-secret-token-here"
+
+# Workspace基础目录（rsync模式使用）
+export WORKSPACE_BASE="/var/ci-workspace"
+
+# 等待超时时间（秒）默认25分钟
+export CI_TIMEOUT=1500

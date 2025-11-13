@@ -1,0 +1,90 @@
+// Jenkins Pipeline示例
+// 场景：Java项目需要大量内存编译
+
+pipeline {
+    agent any
+
+    options {
+        timeout(time: 30, unit: 'MINUTES')
+        buildDiscarder(logRotator(numToKeepStr: '10'))
+    }
+
+    environment {
+        REMOTE_CI_HOST = 'ci-user@192.168.1.100'
+        REMOTE_CI_API = 'http://192.168.1.100:5000'
+        REMOTE_CI_TOKEN = credentials('remote-ci-token')
+    }
+
+    stages {
+        stage('Prepare') {
+            steps {
+                script {
+                    echo "Project: ${env.JOB_NAME}"
+                    echo "Branch: ${env.GIT_BRANCH}"
+                }
+            }
+        }
+
+        stage('Local Quick Test') {
+            steps {
+                sh '''
+                    ./mvnw clean compile
+                    ./mvnw test -Dtest=*UnitTest
+                '''
+            }
+        }
+
+        stage('Remote Full Build - rsync') {
+            when {
+                branch 'main'
+            }
+            steps {
+                script {
+                    // 配置SSH
+                    sh '''
+                        mkdir -p ~/.ssh
+                        ssh-keyscan -H 192.168.1.100 >> ~/.ssh/known_hosts
+                    '''
+
+                    // 提交远程构建
+                    sh '''
+                        curl -O https://raw.githubusercontent.com/your-org/remoteCI/main/client/submit-rsync.sh
+
+                        bash submit-rsync.sh ${JOB_NAME} "
+                            ./mvnw clean install -DskipTests=false &&
+                            ./mvnw verify &&
+                            ./mvnw sonar:sonar
+                        "
+                    '''
+                }
+            }
+        }
+
+        stage('Remote Integration Test - upload') {
+            when {
+                expression { env.GIT_BRANCH ==~ /^(develop|release\/.*)$/ }
+            }
+            steps {
+                sh '''
+                    curl -O https://raw.githubusercontent.com/your-org/remoteCI/main/client/submit-upload.sh
+
+                    bash submit-upload.sh "
+                        ./mvnw clean install &&
+                        ./mvnw failsafe:integration-test &&
+                        ./mvnw failsafe:verify
+                    "
+                '''
+            }
+        }
+    }
+
+    post {
+        success {
+            echo 'Build succeeded!'
+        }
+        failure {
+            echo 'Build failed!'
+            // 可以添加通知逻辑
+        }
+    }
+}

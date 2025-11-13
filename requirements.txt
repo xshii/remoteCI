@@ -1,0 +1,16 @@
+# Remote CI - Celery方案依赖
+
+# 核心框架
+Flask==3.0.0
+celery[redis]==5.3.4
+redis==5.0.1
+
+# 任务监控
+flower==2.0.1
+
+# 数据处理
+msgpack==1.0.7
+
+# 工具库
+python-dotenv==1.0.0
+requests==2.31.0
