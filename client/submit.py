@@ -1,17 +1,25 @@
 #!/usr/bin/env python3
 """
-Remote CI 统一客户端
+Remote CI 统一客户端（增强版）
 支持三种模式：upload（上传）、rsync（同步）、git（克隆）
+支持自动用户检测和workspace隔离，避免并发冲突
 
 用法:
   python submit.py upload [options] <script>
   python submit.py rsync [options] <project> <script>
   python submit.py git [options] <repo> <branch> <script>
+
+新增功能:
+  - 自动检测CI系统用户（GitLab、GitHub、Jenkins等）
+  - rsync模式自动添加用户后缀，避免workspace冲突
+  - 支持UUID模式，确保完全隔离（调试用）
+  - 保留编译缓存，加速后续构建
 """
 
 import os
 import sys
 import time
+import uuid
 import tarfile
 import tempfile
 import argparse
@@ -20,6 +28,71 @@ import subprocess
 import fnmatch
 from pathlib import Path
 
+
+# ============ 辅助函数 ============
+
+def detect_user_id():
+    """
+    智能检测用户ID
+    支持多种CI系统：GitLab CI、GitHub Actions、Jenkins、CircleCI、Travis CI
+
+    返回:
+        用户ID字符串
+    """
+    # 1. 优先使用显式指定的环境变量
+    if os.environ.get('REMOTE_CI_USER_ID'):
+        return os.environ.get('REMOTE_CI_USER_ID')
+
+    # 2. 按优先级检测各种CI系统的用户变量
+    ci_detections = [
+        ('GITLAB_USER_LOGIN', 'GitLab CI'),
+        ('GITLAB_USER_ID', 'GitLab CI'),
+        ('GITHUB_ACTOR', 'GitHub Actions'),
+        ('BUILD_USER', 'Jenkins'),
+        ('CIRCLE_USERNAME', 'CircleCI'),
+        ('TRAVIS_BUILD_USER', 'Travis CI'),
+    ]
+
+    for var, ci_name in ci_detections:
+        if os.environ.get(var):
+            user_id = os.environ.get(var)
+            return user_id
+
+    # 3. 降级使用本地系统用户
+    return os.environ.get('USER', 'unknown')
+
+
+def generate_workspace_name(project_name, user_id=None, use_uuid=False):
+    """
+    生成workspace名称
+
+    Args:
+        project_name: 项目基础名称
+        user_id: 用户ID（None表示自动检测）
+        use_uuid: 是否使用UUID模式（完全隔离，不复用缓存）
+
+    Returns:
+        完整的workspace名称
+
+    示例:
+        generate_workspace_name('proj', 'alice', False)  → 'proj-alice'
+        generate_workspace_name('proj', 'alice', True)   → 'proj-alice-a1b2c3d4'
+        generate_workspace_name('proj', None, True)      → 'proj-{auto_user}-a1b2c3d4'
+    """
+    # 自动检测user_id（如果未指定）
+    if user_id is None:
+        user_id = detect_user_id()
+
+    if use_uuid:
+        # UUID模式：在user_id后追加UUID，既隔离又分组
+        uid = uuid.uuid4().hex[:8]
+        return f"{project_name}-{user_id}-{uid}"
+    else:
+        # 用户模式：按用户隔离，复用编译缓存
+        return f"{project_name}-{user_id}"
+
+
+# ============ 客户端类 ============
 
 class RemoteCIClient:
     """Remote CI 统一客户端"""
@@ -508,9 +581,21 @@ def main():
   python submit.py upload "npm test" --project myapp --user-id 12345
   python submit.py upload "npm test" --path "src/ tests/" --exclude "*.log,*.tmp"
 
-  # Rsync模式
+  # Rsync模式（推荐：自动用户隔离）
   python submit.py rsync myproject "npm test"
-  python submit.py rsync myproject "npm test" --user-id 12345
+  # → workspace: myproject-alice（自动检测用户，复用缓存）
+
+  # Rsync模式（用户+UUID隔离，调试用）
+  python submit.py rsync myproject "npm test" --uuid
+  # → workspace: myproject-alice-a1b2c3d4（按用户分组，每次独立）
+
+  # Rsync模式（手动指定用户）
+  python submit.py rsync myproject "npm test" --user-id bob
+  # → workspace: myproject-bob
+
+  # Rsync模式（禁用隔离，不推荐）
+  python submit.py rsync myproject "npm test" --no-user-suffix
+  # → workspace: myproject（多人并发可能冲突！）
 
   # Git模式
   python submit.py git https://github.com/user/repo.git main "npm test"
@@ -535,6 +620,10 @@ def main():
     rsync_parser = subparsers.add_parser('rsync', help='rsync模式')
     rsync_parser.add_argument('project', help='项目名称')
     rsync_parser.add_argument('script', help='构建脚本')
+    rsync_parser.add_argument('--uuid', action='store_true',
+                              help='添加UUID后缀（格式: project-user-uuid，按用户分组但每次独立）')
+    rsync_parser.add_argument('--no-user-suffix', action='store_true',
+                              help='不添加用户后缀（不推荐，可能导致并发冲突）')
 
     # Git 子命令
     git_parser = subparsers.add_parser('git', help='Git模式')
@@ -572,8 +661,42 @@ def main():
     elif args.mode == 'rsync':
         remote_host = os.environ.get('REMOTE_CI_HOST', 'ci-user@remote-ci-server')
         workspace_base = os.environ.get('WORKSPACE_BASE', '/var/ci-workspace')
+
+        # 生成workspace名称（支持用户隔离和UUID模式）
+        if args.no_user_suffix:
+            # 不添加后缀（原始行为，有并发风险）
+            workspace_name = args.project
+            print("⚠️  警告: 未启用用户隔离，多人并发可能冲突")
+            print()
+        else:
+            # 自动检测user_id（如果未指定）
+            if user_id is None:
+                user_id = detect_user_id()
+
+            # 生成workspace名称
+            workspace_name = generate_workspace_name(
+                args.project,
+                user_id=user_id,
+                use_uuid=args.uuid
+            )
+
+            # 显示workspace信息
+            print("=" * 50)
+            print("Workspace隔离配置")
+            print("=" * 50)
+            print(f"原始项目名: {args.project}")
+            print(f"用户ID: {user_id}")
+            print(f"Workspace: {workspace_name}")
+            if args.uuid:
+                print("模式: 用户+UUID隔离（按用户分组，每次独立）")
+                print("特点: 不复用缓存，适合调试")
+            else:
+                print("模式: 用户隔离（复用编译缓存）✓")
+            print("=" * 50)
+            print()
+
         return client.rsync_mode(
-            project_name=args.project,
+            project_name=workspace_name,
             script=args.script,
             remote_host=remote_host,
             workspace_base=workspace_base,

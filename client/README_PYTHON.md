@@ -70,17 +70,48 @@ python3 submit.py upload "npm test" --project myapp --user-id 12345 --path "src/
 
 #### Rsync模式（同步代码）
 
-```bash
-# 基础用法
-python3 submit.py rsync myproject "npm test"
+**⭐ 自动用户隔离（推荐）**
 
-# 带用户ID
-python3 submit.py rsync myproject "npm test" --user-id 12345
+Rsync模式自动为每个用户创建独立workspace，避免多人并发冲突：
+
+```bash
+# 基础用法 - 自动检测用户并隔离（推荐）
+python3 submit.py rsync myproject "npm test"
+# → workspace: myproject-alice（自动检测GitLab/GitHub/Jenkins用户）
+
+# UUID模式 - 完全隔离（调试用）
+python3 submit.py rsync myproject "npm test" --uuid
+# → workspace: myproject-alice-a1b2c3d4（按用户分组，每次独立）
+
+# 手动指定用户
+python3 submit.py rsync myproject "npm test" --user-id bob
+# → workspace: myproject-bob
+
+# 禁用隔离（不推荐）
+python3 submit.py rsync myproject "npm test" --no-user-suffix
+# → workspace: myproject（多人并发可能冲突！）
 
 # 需要先配置环境变量
 export REMOTE_CI_HOST="ci-user@remote-ci-server"
 export WORKSPACE_BASE="/var/ci-workspace"
 ```
+
+**Workspace隔离效果：**
+```
+/var/ci-workspace/
+  ├── myproject-alice/          ← Alice的独立空间（复用缓存）
+  ├── myproject-alice-a1b2c3d4  ← Alice的UUID调试workspace
+  ├── myproject-bob/            ← Bob的独立空间
+  └── myproject-charlie/        ← Charlie的独立空间
+```
+
+**支持的CI系统用户检测：**
+- GitLab CI: `$GITLAB_USER_LOGIN`
+- GitHub Actions: `$GITHUB_ACTOR`
+- Jenkins: `$BUILD_USER`
+- CircleCI: `$CIRCLE_USERNAME`
+- Travis CI: `$TRAVIS_BUILD_USER`
+- 本地环境: `$USER`
 
 #### Git模式（克隆代码）
 
@@ -169,6 +200,62 @@ jobs:
 - **git**：git模式需要（通常已预装）
 
 ## 💡 高级用法
+
+### Workspace隔离（Rsync模式）
+
+**问题：多人并发冲突**
+
+在多人团队中，如果都使用同一个workspace，后提交的会覆盖先提交的代码：
+```
+10:00:00 - Alice rsync → /var/ci-workspace/myproject (Alice的代码)
+10:00:05 - Bob rsync → /var/ci-workspace/myproject (覆盖成Bob的代码！)
+结果：Alice的任务执行了Bob的代码 ❌
+```
+
+**解决：自动用户隔离**
+
+客户端自动为每个用户创建独立workspace：
+```bash
+# 默认启用用户隔离（推荐）
+python3 submit.py rsync myproject "make -j8"
+# → workspace: myproject-alice
+# → 复用编译缓存，增量编译快速
+
+# UUID模式（调试/一次性任务）
+python3 submit.py rsync myproject "make -j8" --uuid
+# → workspace: myproject-alice-a1b2c3d4
+# → 按用户分组，完全隔离，不复用缓存
+```
+
+**三种模式对比：**
+
+| 模式 | Workspace | 缓存 | 冲突 | 适用场景 |
+|------|-----------|------|------|---------|
+| **用户模式** | `project-alice` | ✅ 复用 | ❌ 无 | 日常开发（推荐） |
+| **UUID模式** | `project-alice-uuid` | ❌ 不复用 | ❌ 无 | 调试/压力测试 |
+| **禁用隔离** | `project` | ✅ 复用 | ⚠️ 有 | 单人使用 |
+
+**实际效果：**
+```
+远程CI目录结构：
+/var/ci-workspace/
+  ├── myproject-alice/      ← Alice（复用build/缓存，5秒增量编译）
+  ├── myproject-bob/        ← Bob（复用build/缓存）
+  └── myproject-charlie/    ← Charlie（复用build/缓存）
+
+/opt/heavy-libs/            ← 预装库（所有人共享，只读）
+  ├── include/
+  └── lib/
+```
+
+**清理UUID临时workspace：**
+```bash
+# 在远程CI服务器上，清理1天前的UUID workspace
+find /var/ci-workspace -name "*-*-????????" -mtime +1 -exec rm -rf {} \;
+
+# 添加到crontab（每天凌晨2点自动清理）
+0 2 * * * find /var/ci-workspace -name "*-*-????????" -mtime +1 -exec rm -rf {} \;
+```
 
 ### 自定义超时时间
 
