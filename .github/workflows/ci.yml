@@ -118,8 +118,8 @@ jobs:
 
       - name: Build test Docker image
         run: |
-          docker build -f tests/Dockerfile.test -t remoteCI-test:latest .
+          docker build -f tests/Dockerfile.test -t remoteci-test:latest .
 
       - name: Verify image
         run: |
-          docker images | grep remoteCI-test
+          docker images | grep remoteci-test
