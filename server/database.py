@@ -39,6 +39,7 @@ class JobDatabase:
                 status TEXT NOT NULL,
                 script TEXT NOT NULL,
                 user TEXT NOT NULL,
+                project_name TEXT,
 
                 created_at TEXT NOT NULL,
                 started_at TEXT,
@@ -64,6 +65,7 @@ class JobDatabase:
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_jobs_created_at ON ci_jobs(created_at DESC)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_jobs_mode ON ci_jobs(mode)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_jobs_finished_at ON ci_jobs(finished_at DESC)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_jobs_project_name ON ci_jobs(project_name)')
 
         conn.commit()
         conn.close()
@@ -87,15 +89,16 @@ class JobDatabase:
 
             cursor.execute('''
                 INSERT INTO ci_jobs (
-                    job_id, mode, status, script, user,
+                    job_id, mode, status, script, user, project_name,
                     created_at, log_file, workspace, repo_url, branch, metadata
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 job_id,
                 job_data.get('mode', 'unknown'),
                 'queued',
                 job_data.get('script', ''),
                 job_data.get('user', 'anonymous'),
+                job_data.get('project_name', job_data.get('workspace', '').split('/')[-1] if job_data.get('workspace') else None),
                 datetime.now().isoformat(),
                 job_data.get('log_file', ''),
                 job_data.get('workspace'),
@@ -212,7 +215,7 @@ class JobDatabase:
         Args:
             limit: 返回数量限制
             offset: 偏移量
-            filters: 过滤条件，支持 status, user, mode
+            filters: 过滤条件，支持 status, user, mode, project_name
 
         Returns:
             任务列表
@@ -236,6 +239,9 @@ class JobDatabase:
                 if filters.get('mode'):
                     conditions.append('mode = ?')
                     params.append(filters['mode'])
+                if filters.get('project_name'):
+                    conditions.append('project_name = ?')
+                    params.append(filters['project_name'])
 
                 if conditions:
                     query += ' WHERE ' + ' AND '.join(conditions)
@@ -281,6 +287,9 @@ class JobDatabase:
                 if filters.get('mode'):
                     conditions.append('mode = ?')
                     params.append(filters['mode'])
+                if filters.get('project_name'):
+                    conditions.append('project_name = ?')
+                    params.append(filters['project_name'])
 
                 if conditions:
                     query += ' WHERE ' + ' AND '.join(conditions)

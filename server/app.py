@@ -169,6 +169,7 @@ def create_upload_job():
     multipart/form-data:
       - code: 代码包文件 (tar.gz)
       - script: 构建脚本
+      - project_name: 项目名称（可选，推荐提供以保持与rsync模式一致）
       - user: 可选的用户名
     """
     # 验证参数
@@ -181,15 +182,19 @@ def create_upload_job():
     code_file = request.files['code']
     script = request.form['script']
     user = request.form.get('user', 'anonymous')
+    project_name = request.form.get('project_name', 'default')
 
     # 验证文件名
     if code_file.filename == '':
         return jsonify({'error': 'Empty filename'}), 400
 
-    # 保存上传的文件
+    # 保存上传的文件（使用项目名 + 时间戳 + UUID避免冲突）
+    import uuid
     filename = secure_filename(code_file.filename)
     timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
-    saved_filename = f"{timestamp}-{filename}"
+    unique_id = uuid.uuid4().hex[:8]
+    # 格式: projectname-20241114-103045-abc12345-code.tar.gz
+    saved_filename = f"{project_name}-{timestamp}-{unique_id}-{filename}"
     upload_path = f"{DATA_DIR}/uploads/{saved_filename}"
 
     code_file.save(upload_path)
@@ -199,7 +204,8 @@ def create_upload_job():
         'mode': 'upload',
         'code_archive': upload_path,
         'script': script,
-        'user': user
+        'user': user,
+        'project_name': project_name
     }
 
     # 提交任务
@@ -214,7 +220,8 @@ def create_upload_job():
     return jsonify({
         'job_id': task.id,
         'status': 'queued',
-        'mode': 'upload'
+        'mode': 'upload',
+        'project_name': project_name
     }), 201
 
 
@@ -305,6 +312,7 @@ def get_job_history():
       - status: 按状态过滤 (queued, running, success, failed, timeout, error)
       - user: 按用户过滤
       - mode: 按模式过滤 (rsync, upload, git)
+      - project_name: 按项目名过滤
     """
     # 获取参数
     page = request.args.get('page', 1, type=int)
@@ -317,6 +325,8 @@ def get_job_history():
         filters['user'] = request.args.get('user')
     if request.args.get('mode'):
         filters['mode'] = request.args.get('mode')
+    if request.args.get('project_name'):
+        filters['project_name'] = request.args.get('project_name')
 
     # 查询任务列表
     jobs = job_db.get_jobs(
@@ -791,7 +801,7 @@ WEB_TEMPLATE = '''<!DOCTYPE html>
                 jobList.innerHTML = data.jobs.map(job => `
                     <div class="job-item" onclick="showLogs('${job.job_id}')">
                         <div class="job-header">
-                            <span class="job-id">${job.job_id}</span>
+                            <span class="job-id">${job.project_name ? `${job.project_name} - ` : ''}${job.job_id}</span>
                             <div class="badges">
                                 ${job.mode ? `<span class="badge mode">${job.mode}</span>` : ''}
                                 <span class="badge status ${job.status}">${getStatusText(job.status)}</span>

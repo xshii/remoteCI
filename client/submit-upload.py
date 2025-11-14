@@ -96,18 +96,52 @@ class RemoteCIClient:
 
         return tarinfo
 
-    def submit_job(self, archive_path, script, user=None):
+    def _detect_project_name(self):
+        """自动检测项目名"""
+        # 1. 尝试从git获取仓库名
+        try:
+            result = subprocess.run(
+                ['git', 'config', '--get', 'remote.origin.url'],
+                capture_output=True,
+                text=True,
+                timeout=2
+            )
+            if result.returncode == 0:
+                url = result.stdout.strip()
+                # 从git URL提取项目名
+                # https://github.com/user/repo.git -> repo
+                # git@github.com:user/repo.git -> repo
+                name = url.split('/')[-1].replace('.git', '')
+                if name:
+                    return name
+        except:
+            pass
+
+        # 2. 使用当前目录名
+        try:
+            return os.path.basename(os.getcwd())
+        except:
+            pass
+
+        # 3. 默认
+        return 'default'
+
+    def submit_job(self, archive_path, script, project_name=None, user=None):
         """提交任务到远程CI"""
         print(">>> 步骤 2/3: 上传代码并提交任务")
 
         if user is None:
             user = os.environ.get('USER', 'unknown')
 
+        if project_name is None:
+            project_name = self._detect_project_name()
+
         with open(archive_path, 'rb') as f:
             files = {'code': ('code.tar.gz', f, 'application/gzip')}
             data = {
                 'script': script,
-                'user': user
+                'user': user,
+                'project_name': project_name
             }
 
             try:
@@ -225,14 +259,21 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例:
-  python submit-upload.py "npm test"
-  python submit-upload.py "npm test" "src/ tests/"
+  python submit-upload.py myapp "npm test"
+  python submit-upload.py myapp "npm test" "src/ tests/"
+  python submit-upload.py --project myapp "npm test"
 
 环境变量:
   REMOTE_CI_API     - 远程CI API地址 (默认: http://remote-ci-server:5000)
   REMOTE_CI_TOKEN   - API认证Token (默认: your-api-token)
   CI_TIMEOUT        - 等待超时时间/秒 (默认: 1500)
         """
+    )
+
+    parser.add_argument(
+        'project_name',
+        nargs='?',
+        help='项目名称（推荐，用于识别任务；留空自动检测）'
     )
 
     parser.add_argument(
@@ -249,7 +290,16 @@ def main():
         help='上传路径 (默认: . 当前目录)'
     )
 
+    parser.add_argument(
+        '--project', '-p',
+        dest='project_name_opt',
+        help='项目名称（可选，使用 --project 参数）'
+    )
+
     args = parser.parse_args()
+
+    # 项目名优先级：--project参数 > 位置参数 > 自动检测
+    project_name = args.project_name_opt or args.project_name
 
     # 从环境变量读取配置
     api_url = os.environ.get('REMOTE_CI_API', 'http://remote-ci-server:5000')
@@ -259,6 +309,8 @@ def main():
     print("=" * 42)
     print("Remote CI - 上传模式")
     print("=" * 42)
+    if project_name:
+        print(f"项目名称: {project_name}")
     print(f"构建脚本: {args.script}")
     print(f"上传内容: {args.upload_path}")
     print("=" * 42)
@@ -276,7 +328,7 @@ def main():
         client.create_archive(args.upload_path, archive_path)
 
         # 提交任务
-        job_id = client.submit_job(archive_path, args.script)
+        job_id = client.submit_job(archive_path, args.script, project_name=project_name)
         if not job_id:
             return 1
 
