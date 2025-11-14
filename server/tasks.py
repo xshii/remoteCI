@@ -14,6 +14,10 @@ from pathlib import Path
 from celery import Task
 from server.celery_app import celery_app
 from server.config import WORK_DIR, DATA_DIR, JOB_TIMEOUT
+from server.database import JobDatabase
+
+# 初始化数据库连接
+job_db = JobDatabase(f"{DATA_DIR}/jobs.db")
 
 
 class BuildTask(Task):
@@ -77,6 +81,9 @@ def execute_build(self, job_data):
         self.update_state(state=state, meta=meta)
 
     try:
+        # 更新数据库状态为运行中
+        job_db.update_job_started(task_id)
+
         # 初始化日志
         log("=" * 70)
         log(f"任务ID: {task_id}")
@@ -218,11 +225,16 @@ def execute_build(self, job_data):
             log("=" * 70)
             status = 'failed'
 
-        return {
+        result = {
             'status': status,
             'exit_code': build_result.returncode,
             'duration': duration
         }
+
+        # 更新数据库状态为完成
+        job_db.update_job_finished(task_id, status, result)
+
+        return result
 
     except subprocess.TimeoutExpired:
         log(f"\n\n{'=' * 70}")
@@ -230,24 +242,34 @@ def execute_build(self, job_data):
         log(f"超时限制: {JOB_TIMEOUT} 秒")
         log("=" * 70)
 
-        return {
+        result = {
             'status': 'timeout',
             'exit_code': -1,
             'duration': (datetime.now() - start_time).total_seconds(),
             'error': 'Task timeout'
         }
 
+        # 更新数据库状态
+        job_db.update_job_finished(task_id, 'timeout', result)
+
+        return result
+
     except Exception as e:
         log(f"\n\n{'=' * 70}")
         log(f"✗ 任务执行错误: {str(e)}")
         log("=" * 70)
 
-        return {
+        result = {
             'status': 'error',
             'exit_code': -2,
             'duration': (datetime.now() - start_time).total_seconds(),
             'error': str(e)
         }
+
+        # 更新数据库状态
+        job_db.update_job_finished(task_id, 'error', result)
+
+        return result
 
     finally:
         # 清理工作目录
