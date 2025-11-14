@@ -27,7 +27,7 @@ test-all: test-clean
 # 启动测试环境
 test-start:
 	@echo "启动测试环境..."
-	@docker-compose -f docker-compose.test.yml up -d --build
+	@docker compose -f docker-compose.test.yml up -d --build
 	@echo "等待服务就绪..."
 	@sleep 5
 	@curl -s http://localhost:15000/api/health | jq . || echo "服务未就绪"
@@ -40,17 +40,17 @@ test-e2e:
 
 # 查看日志
 test-logs:
-	@docker-compose -f docker-compose.test.yml logs -f
+	@docker compose -f docker-compose.test.yml logs -f
 
 # 停止测试环境
 test-stop:
 	@echo "停止测试环境..."
-	@docker-compose -f docker-compose.test.yml down
+	@docker compose -f docker-compose.test.yml down
 
 # 清理测试环境和数据
 test-clean:
 	@echo "清理测试环境..."
-	@docker-compose -f docker-compose.test.yml down -v 2>/dev/null || true
+	@docker compose -f docker-compose.test.yml down -v 2>/dev/null || true
 	@rm -rf ../test-workspace ../test-logs
 	@echo "清理完成"
 
@@ -62,7 +62,7 @@ test-shell:
 test-check:
 	@echo "检查Docker环境..."
 	@docker --version
-	@docker-compose --version
+	@docker compose version
 	@echo ""
 	@echo "检查Python依赖..."
 	@python3 --version
