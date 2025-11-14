@@ -1,0 +1,112 @@
+# GitLab CI 配置示例
+# 演示如何使用 workspace 隔离功能
+
+# ============================================
+# 场景：重量级库项目（OpenCV、Boost等）
+# 问题：预装库在远程CI，需要避免并发冲突
+# 解决：自动用户隔离 + 复用编译缓存
+# ============================================
+
+variables:
+  # 远程CI配置
+  REMOTE_CI_HOST: "ci-user@192.168.1.100"
+  REMOTE_CI_API: "http://192.168.1.100:5000"
+  REMOTE_CI_TOKEN: "${REMOTE_CI_TOKEN}"  # 在GitLab Variables中配置
+
+stages:
+  - build
+  - test
+
+# ============================================
+# 示例1: 自动用户隔离（推荐）✅
+# ============================================
+build:
+  stage: build
+  script:
+    # 同步代码到远程CI
+    # workspace自动变为: myproject-alice / myproject-bob
+    - rsync -avz
+        --exclude='build/'
+        --exclude='.git/'
+        ./ ${REMOTE_CI_HOST}:/var/ci-workspace/myproject-${GITLAB_USER_LOGIN}/
+
+    # 提交构建任务（自动检测用户）
+    - python client/submit.py rsync myproject "
+        # 加载预装的重量级库
+        export LD_LIBRARY_PATH=/opt/heavy-libs/lib:\$LD_LIBRARY_PATH &&
+        export CMAKE_PREFIX_PATH=/opt/heavy-libs &&
+
+        # 编译（增量）
+        mkdir -p build && cd build &&
+        cmake .. &&
+        make -j8 &&
+        ctest
+      "
+
+  # 显示信息
+  after_script:
+    - echo "用户: ${GITLAB_USER_LOGIN}"
+    - echo "Workspace: myproject-${GITLAB_USER_LOGIN}"
+
+# ============================================
+# 示例2: UUID模式（调试用）
+# ============================================
+debug_build:
+  stage: build
+  when: manual  # 手动触发
+  script:
+    - python client/submit.py rsync myproject "make -j8" --uuid
+  after_script:
+    - echo "⚠️  UUID模式：每次独立构建，不复用缓存"
+
+# ============================================
+# 示例3: 手动指定用户
+# ============================================
+test_as_bob:
+  stage: test
+  when: manual
+  script:
+    - export REMOTE_CI_USER_ID="bob"
+    - python client/submit.py rsync myproject "make test"
+  after_script:
+    - echo "模拟用户bob的环境测试"
+
+# ============================================
+# 示例4: 按分支隔离（高级用法）
+# ============================================
+build_by_branch:
+  stage: build
+  script:
+    # workspace: myproject-alice-main / myproject-alice-feature-login
+    - |
+      WORKSPACE="${CI_PROJECT_NAME}-${GITLAB_USER_LOGIN}-${CI_COMMIT_REF_SLUG}"
+      rsync -avz ./ ${REMOTE_CI_HOST}:/var/ci-workspace/${WORKSPACE}/
+      python client/submit.py rsync ${WORKSPACE} "make"
+  after_script:
+    - echo "Workspace: ${CI_PROJECT_NAME}-${GITLAB_USER_LOGIN}-${CI_COMMIT_REF_SLUG}"
+
+# ============================================
+# 说明
+# ============================================
+#
+# 远程CI上的目录结构：
+# /var/ci-workspace/
+#   ├── myproject-alice/      ← Alice的独立空间
+#   │   ├── src/              ← Alice的代码
+#   │   └── build/            ← Alice的编译缓存（保留）
+#   │
+#   ├── myproject-bob/        ← Bob的独立空间
+#   │   ├── src/
+#   │   └── build/
+#   │
+#   └── myproject-charlie/    ← Charlie的独立空间
+#
+# /opt/heavy-libs/            ← 所有用户共享（只读）
+#   ├── include/
+#   └── lib/
+#
+# 优势：
+# 1. ✅ 完全隔离：多人并发无冲突
+# 2. ✅ 快速编译：复用编译缓存（30秒→5秒）
+# 3. ✅ 共享库：无需每次下载/编译重量级库
+# 4. ✅ 自动化：无需手动管理workspace名称
