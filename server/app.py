@@ -115,7 +115,8 @@ def create_rsync_job():
     请求体: {
         "workspace": "/var/ci-workspace/project-name",
         "script": "npm install && npm test",
-        "user": "optional-username"
+        "user": "optional-username",
+        "user_id": "optional-user-id"
     }
     """
     data = request.json
@@ -142,7 +143,8 @@ def create_rsync_job():
         'mode': 'rsync',
         'workspace': workspace,
         'script': data['script'],
-        'user': data.get('user', 'anonymous')
+        'user': data.get('user', 'anonymous'),
+        'user_id': data.get('user_id')
     }
 
     # 提交任务
@@ -171,6 +173,7 @@ def create_upload_job():
       - script: 构建脚本
       - project_name: 项目名称（可选，推荐提供以保持与rsync模式一致）
       - user: 可选的用户名
+      - user_id: 可选的用户ID
     """
     # 验证参数
     if 'code' not in request.files:
@@ -182,6 +185,7 @@ def create_upload_job():
     code_file = request.files['code']
     script = request.form['script']
     user = request.form.get('user', 'anonymous')
+    user_id = request.form.get('user_id')
     project_name = request.form.get('project_name', 'default')
 
     # 验证文件名
@@ -205,6 +209,7 @@ def create_upload_job():
         'code_archive': upload_path,
         'script': script,
         'user': user,
+        'user_id': user_id,
         'project_name': project_name
     }
 
@@ -235,7 +240,8 @@ def create_git_job():
         "branch": "main",
         "commit": "optional-commit-hash",
         "script": "npm install && npm test",
-        "user": "optional-username"
+        "user": "optional-username",
+        "user_id": "optional-user-id"
     }
     """
     data = request.json
@@ -251,7 +257,8 @@ def create_git_job():
         'branch': data['branch'],
         'commit': data.get('commit'),
         'script': data['script'],
-        'user': data.get('user', 'anonymous')
+        'user': data.get('user', 'anonymous'),
+        'user_id': data.get('user_id')
     }
 
     # 提交任务
@@ -311,6 +318,7 @@ def get_job_history():
       - per_page: 每页数量（默认20，最大100）
       - status: 按状态过滤 (queued, running, success, failed, timeout, error)
       - user: 按用户过滤
+      - user_id: 按用户ID过滤
       - mode: 按模式过滤 (rsync, upload, git)
       - project_name: 按项目名过滤
     """
@@ -323,6 +331,8 @@ def get_job_history():
         filters['status'] = request.args.get('status')
     if request.args.get('user'):
         filters['user'] = request.args.get('user')
+    if request.args.get('user_id'):
+        filters['user_id'] = request.args.get('user_id')
     if request.args.get('mode'):
         filters['mode'] = request.args.get('mode')
     if request.args.get('project_name'):

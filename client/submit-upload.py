@@ -126,7 +126,7 @@ class RemoteCIClient:
         # 3. 默认
         return 'default'
 
-    def submit_job(self, archive_path, script, project_name=None, user=None):
+    def submit_job(self, archive_path, script, project_name=None, user=None, user_id=None):
         """提交任务到远程CI"""
         print(">>> 步骤 2/3: 上传代码并提交任务")
 
@@ -143,6 +143,9 @@ class RemoteCIClient:
                 'user': user,
                 'project_name': project_name
             }
+            # 添加user_id（如果提供）
+            if user_id:
+                data['user_id'] = user_id
 
             try:
                 response = requests.post(
@@ -261,12 +264,13 @@ def main():
 示例:
   python submit-upload.py myapp "npm test"
   python submit-upload.py myapp "npm test" "src/ tests/"
-  python submit-upload.py --project myapp "npm test"
+  python submit-upload.py --project myapp --user-id 12345 "npm test"
 
 环境变量:
-  REMOTE_CI_API     - 远程CI API地址 (默认: http://remote-ci-server:5000)
-  REMOTE_CI_TOKEN   - API认证Token (默认: your-api-token)
-  CI_TIMEOUT        - 等待超时时间/秒 (默认: 1500)
+  REMOTE_CI_API      - 远程CI API地址 (默认: http://remote-ci-server:5000)
+  REMOTE_CI_TOKEN    - API认证Token (默认: your-api-token)
+  REMOTE_CI_USER_ID  - 用户ID（可选，用于标识提交者）
+  CI_TIMEOUT         - 等待超时时间/秒 (默认: 1500)
         """
     )
 
@@ -296,6 +300,12 @@ def main():
         help='项目名称（可选，使用 --project 参数）'
     )
 
+    parser.add_argument(
+        '--user-id',
+        dest='user_id',
+        help='用户ID（可选，用于标识提交者）'
+    )
+
     args = parser.parse_args()
 
     # 项目名优先级：--project参数 > 位置参数 > 自动检测
@@ -306,6 +316,9 @@ def main():
     api_token = os.environ.get('REMOTE_CI_TOKEN', 'your-api-token')
     timeout = int(os.environ.get('CI_TIMEOUT', '1500'))
 
+    # user_id优先级：命令行参数 > 环境变量
+    user_id = args.user_id or os.environ.get('REMOTE_CI_USER_ID')
+
     print("=" * 42)
     print("Remote CI - 上传模式")
     print("=" * 42)
@@ -313,6 +326,8 @@ def main():
         print(f"项目名称: {project_name}")
     print(f"构建脚本: {args.script}")
     print(f"上传内容: {args.upload_path}")
+    if user_id:
+        print(f"用户ID: {user_id}")
     print("=" * 42)
     print()
 
@@ -328,7 +343,7 @@ def main():
         client.create_archive(args.upload_path, archive_path)
 
         # 提交任务
-        job_id = client.submit_job(archive_path, args.script, project_name=project_name)
+        job_id = client.submit_job(archive_path, args.script, project_name=project_name, user_id=user_id)
         if not job_id:
             return 1
 

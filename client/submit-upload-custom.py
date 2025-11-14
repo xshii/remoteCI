@@ -120,7 +120,7 @@ class RemoteCIClientCustom:
             return None
         return tarinfo
 
-    def submit_job(self, archive_path, script, user=None):
+    def submit_job(self, archive_path, script, user=None, user_id=None, project_name=None):
         """提交任务到远程CI"""
         print(">>> 步骤 2/3: 上传代码并提交任务")
 
@@ -133,6 +133,11 @@ class RemoteCIClientCustom:
                 'script': script,
                 'user': user
             }
+            # 添加可选参数
+            if user_id:
+                data['user_id'] = user_id
+            if project_name:
+                data['project_name'] = project_name
 
             try:
                 response = requests.post(
@@ -261,13 +266,14 @@ def main():
   # 上传当前目录，但排除指定文件
   python submit-upload-custom.py "npm test" "." "*.log,*.tmp,cache/"
 
-  # 只上传特定文件
-  python submit-upload-custom.py "npm test" "package.json src/ Dockerfile" ""
+  # 指定项目名和用户ID
+  python submit-upload-custom.py --project myapp --user-id 12345 "npm test" "." ""
 
 环境变量:
-  REMOTE_CI_API     - 远程CI API地址 (默认: http://remote-ci-server:5000)
-  REMOTE_CI_TOKEN   - API认证Token (默认: your-api-token)
-  CI_TIMEOUT        - 等待超时时间/秒 (默认: 1500)
+  REMOTE_CI_API      - 远程CI API地址 (默认: http://remote-ci-server:5000)
+  REMOTE_CI_TOKEN    - API认证Token (默认: your-api-token)
+  REMOTE_CI_USER_ID  - 用户ID（可选，用于标识提交者）
+  CI_TIMEOUT         - 等待超时时间/秒 (默认: 1500)
         """
     )
 
@@ -292,6 +298,18 @@ def main():
         help='排除模式，逗号分隔 (例如: *.log,*.tmp,cache/)'
     )
 
+    parser.add_argument(
+        '--project', '-p',
+        dest='project_name',
+        help='项目名称（可选）'
+    )
+
+    parser.add_argument(
+        '--user-id',
+        dest='user_id',
+        help='用户ID（可选，用于标识提交者）'
+    )
+
     args = parser.parse_args()
 
     # 从环境变量读取配置
@@ -299,12 +317,20 @@ def main():
     api_token = os.environ.get('REMOTE_CI_TOKEN', 'your-api-token')
     timeout = int(os.environ.get('CI_TIMEOUT', '1500'))
 
+    # user_id优先级：命令行参数 > 环境变量
+    user_id = args.user_id or os.environ.get('REMOTE_CI_USER_ID')
+    project_name = args.project_name
+
     print("=" * 42)
     print("Remote CI - 上传模式（自定义）")
     print("=" * 42)
+    if project_name:
+        print(f"项目名称: {project_name}")
     print(f"构建脚本: {args.script}")
     print(f"包含路径: {args.include_paths}")
     print(f"排除模式: {args.exclude_patterns if args.exclude_patterns else '默认排除'}")
+    if user_id:
+        print(f"用户ID: {user_id}")
     print("=" * 42)
     print()
 
@@ -320,7 +346,7 @@ def main():
         client.create_archive(args.include_paths, args.exclude_patterns, archive_path)
 
         # 提交任务
-        job_id = client.submit_job(archive_path, args.script)
+        job_id = client.submit_job(archive_path, args.script, user_id=user_id, project_name=project_name)
         if not job_id:
             return 1
 

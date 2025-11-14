@@ -88,7 +88,7 @@ class RemoteCIRsyncClient:
             print("✗ rsync命令未找到，请确保已安装rsync")
             return None
 
-    def submit_job(self, workspace_path, script, user=None):
+    def submit_job(self, workspace_path, script, user=None, user_id=None):
         """提交任务到远程CI"""
         print(">>> 步骤 2/3: 提交构建任务")
 
@@ -100,6 +100,9 @@ class RemoteCIRsyncClient:
             'script': script,
             'user': user
         }
+        # 添加user_id（如果提供）
+        if user_id:
+            payload['user_id'] = user_id
 
         try:
             response = requests.post(
@@ -217,11 +220,13 @@ def main():
 示例:
   python submit-rsync.py myproject "npm test"
   python submit-rsync.py backend "python -m pytest"
+  python submit-rsync.py myproject --user-id 12345 "npm test"
 
 环境变量:
   REMOTE_CI_HOST       - 远程CI SSH地址 (默认: ci-user@remote-ci-server)
   REMOTE_CI_API        - 远程CI API地址 (默认: http://remote-ci-server:5000)
   REMOTE_CI_TOKEN      - API认证Token (默认: your-api-token)
+  REMOTE_CI_USER_ID    - 用户ID（可选，用于标识提交者）
   WORKSPACE_BASE       - Workspace基础目录 (默认: /var/ci-workspace)
   CI_TIMEOUT           - 等待超时时间/秒 (默认: 1500)
   CI_PROJECT_NAME      - CI项目名称 (自动检测)
@@ -241,6 +246,12 @@ def main():
         help='构建脚本 (默认: npm install && npm test)'
     )
 
+    parser.add_argument(
+        '--user-id',
+        dest='user_id',
+        help='用户ID（可选，用于标识提交者）'
+    )
+
     args = parser.parse_args()
 
     # 从环境变量读取配置
@@ -255,6 +266,9 @@ def main():
     if not project_name:
         project_name = os.environ.get('CI_PROJECT_NAME', 'default-project')
 
+    # user_id优先级：命令行参数 > 环境变量
+    user_id = args.user_id or os.environ.get('REMOTE_CI_USER_ID')
+
     workspace_path = f"{workspace_base}/{project_name}"
 
     print("=" * 42)
@@ -263,6 +277,8 @@ def main():
     print(f"项目名称: {project_name}")
     print(f"构建脚本: {args.script}")
     print(f"远程路径: {workspace_path}")
+    if user_id:
+        print(f"用户ID: {user_id}")
     print("=" * 42)
     print()
 
@@ -275,7 +291,7 @@ def main():
         return 1
 
     # 提交任务
-    job_id = client.submit_job(workspace_path, args.script)
+    job_id = client.submit_job(workspace_path, args.script, user_id=user_id)
     if not job_id:
         return 1
 

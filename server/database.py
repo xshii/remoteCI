@@ -39,6 +39,7 @@ class JobDatabase:
                 status TEXT NOT NULL,
                 script TEXT NOT NULL,
                 user TEXT NOT NULL,
+                user_id TEXT,
                 project_name TEXT,
 
                 created_at TEXT NOT NULL,
@@ -59,9 +60,18 @@ class JobDatabase:
             )
         ''')
 
+        # 数据库迁移：为已存在的表添加user_id字段
+        try:
+            cursor.execute("SELECT user_id FROM ci_jobs LIMIT 1")
+        except sqlite3.OperationalError:
+            # user_id字段不存在，添加它
+            cursor.execute("ALTER TABLE ci_jobs ADD COLUMN user_id TEXT")
+            print("✓ 数据库迁移: 添加user_id字段")
+
         # 创建索引
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_jobs_status ON ci_jobs(status)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_jobs_user ON ci_jobs(user)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_jobs_user_id ON ci_jobs(user_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_jobs_created_at ON ci_jobs(created_at DESC)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_jobs_mode ON ci_jobs(mode)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_jobs_finished_at ON ci_jobs(finished_at DESC)')
@@ -78,7 +88,7 @@ class JobDatabase:
 
         Args:
             job_id: 任务ID
-            job_data: 任务数据，包含 mode, script, user, workspace, repo, branch 等
+            job_data: 任务数据，包含 mode, script, user, user_id, workspace, repo, branch 等
 
         Returns:
             bool: 是否创建成功
@@ -89,15 +99,16 @@ class JobDatabase:
 
             cursor.execute('''
                 INSERT INTO ci_jobs (
-                    job_id, mode, status, script, user, project_name,
+                    job_id, mode, status, script, user, user_id, project_name,
                     created_at, log_file, workspace, repo_url, branch, metadata
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 job_id,
                 job_data.get('mode', 'unknown'),
                 'queued',
                 job_data.get('script', ''),
                 job_data.get('user', 'anonymous'),
+                job_data.get('user_id'),
                 job_data.get('project_name', job_data.get('workspace', '').split('/')[-1] if job_data.get('workspace') else None),
                 datetime.now().isoformat(),
                 job_data.get('log_file', ''),
@@ -215,7 +226,7 @@ class JobDatabase:
         Args:
             limit: 返回数量限制
             offset: 偏移量
-            filters: 过滤条件，支持 status, user, mode, project_name
+            filters: 过滤条件，支持 status, user, user_id, mode, project_name
 
         Returns:
             任务列表
@@ -236,6 +247,9 @@ class JobDatabase:
                 if filters.get('user'):
                     conditions.append('user = ?')
                     params.append(filters['user'])
+                if filters.get('user_id'):
+                    conditions.append('user_id = ?')
+                    params.append(filters['user_id'])
                 if filters.get('mode'):
                     conditions.append('mode = ?')
                     params.append(filters['mode'])
@@ -264,7 +278,7 @@ class JobDatabase:
         统计任务数量
 
         Args:
-            filters: 过滤条件
+            filters: 过滤条件，支持 status, user, user_id, mode, project_name
 
         Returns:
             任务总数
@@ -284,6 +298,9 @@ class JobDatabase:
                 if filters.get('user'):
                     conditions.append('user = ?')
                     params.append(filters['user'])
+                if filters.get('user_id'):
+                    conditions.append('user_id = ?')
+                    params.append(filters['user_id'])
                 if filters.get('mode'):
                     conditions.append('mode = ?')
                     params.append(filters['mode'])
