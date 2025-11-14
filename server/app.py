@@ -19,9 +19,13 @@ from server.config import (
 )
 from server.celery_app import celery_app
 from server.tasks import execute_build
+from server.database import JobDatabase
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = MAX_UPLOAD_SIZE
+
+# 初始化数据库
+job_db = JobDatabase(f"{DATA_DIR}/jobs.db")
 
 
 # ============ 认证装饰器 ============
@@ -41,7 +45,42 @@ def require_auth(f):
 
 # ============ 辅助函数 ============
 def get_job_info(task_id):
-    """获取任务信息"""
+    """获取任务信息（优先从数据库获取）"""
+    # 1. 先从数据库获取基础信息
+    db_job = job_db.get_job(task_id)
+
+    if db_job:
+        job_info = {
+            'job_id': db_job['job_id'],
+            'status': db_job['status'],
+            'mode': db_job['mode'],
+            'user': db_job['user'],
+            'script': db_job['script'],
+            'created_at': db_job['created_at'],
+            'started_at': db_job['started_at'],
+            'finished_at': db_job['finished_at'],
+            'duration': db_job['duration'],
+            'exit_code': db_job['exit_code'],
+        }
+
+        # 2. 如果任务未完成，从Celery获取实时状态
+        if db_job['status'] in ['queued', 'running']:
+            result = AsyncResult(task_id, app=celery_app)
+
+            if result.state == 'STARTED' or result.state == 'PROGRESS':
+                job_info['status'] = 'running'
+                if result.state == 'PROGRESS' and result.info:
+                    job_info['progress'] = result.info
+            elif result.state == 'SUCCESS':
+                job_info['status'] = result.result.get('status', 'success')
+                job_info['result'] = result.result
+            elif result.state == 'FAILURE':
+                job_info['status'] = 'error'
+                job_info['error'] = str(result.info)
+
+        return job_info
+
+    # 3. 数据库中没有记录，从Celery获取（兼容旧数据）
     result = AsyncResult(task_id, app=celery_app)
 
     job_info = {
@@ -98,12 +137,21 @@ def create_rsync_job():
     if not workspace_abs.startswith(workspace_base):
         return jsonify({'error': f'Workspace must be under {WORKSPACE_DIR}'}), 403
 
-    # 提交任务
-    task = execute_build.delay({
+    # 准备任务数据
+    job_data = {
         'mode': 'rsync',
         'workspace': workspace,
         'script': data['script'],
         'user': data.get('user', 'anonymous')
+    }
+
+    # 提交任务
+    task = execute_build.delay(job_data)
+
+    # 记录到数据库
+    job_db.create_job(task.id, {
+        **job_data,
+        'log_file': f"{DATA_DIR}/logs/{task.id}.log"
     })
 
     return jsonify({
@@ -146,12 +194,21 @@ def create_upload_job():
 
     code_file.save(upload_path)
 
-    # 提交任务
-    task = execute_build.delay({
+    # 准备任务数据
+    job_data = {
         'mode': 'upload',
         'code_archive': upload_path,
         'script': script,
         'user': user
+    }
+
+    # 提交任务
+    task = execute_build.delay(job_data)
+
+    # 记录到数据库
+    job_db.create_job(task.id, {
+        **job_data,
+        'log_file': f"{DATA_DIR}/logs/{task.id}.log"
     })
 
     return jsonify({
@@ -180,14 +237,24 @@ def create_git_job():
     if not all(k in data for k in ['repo', 'branch', 'script']):
         return jsonify({'error': 'Missing required fields: repo, branch, script'}), 400
 
-    # 提交任务
-    task = execute_build.delay({
+    # 准备任务数据
+    job_data = {
         'mode': 'git',
         'repo': data['repo'],
         'branch': data['branch'],
         'commit': data.get('commit'),
         'script': data['script'],
         'user': data.get('user', 'anonymous')
+    }
+
+    # 提交任务
+    task = execute_build.delay(job_data)
+
+    # 记录到数据库
+    job_db.create_job(task.id, {
+        **job_data,
+        'repo_url': data['repo'],
+        'log_file': f"{DATA_DIR}/logs/{task.id}.log"
     })
 
     return jsonify({
@@ -213,6 +280,84 @@ def get_job_logs(job_id):
 
     if not os.path.exists(log_file):
         # 如果任务还没开始，返回空日志
+        return '', 200, {'Content-Type': 'text/plain; charset=utf-8'}
+
+    # 支持tail参数
+    lines = request.args.get('lines', type=int)
+
+    with open(log_file, 'r', encoding='utf-8', errors='replace') as f:
+        if lines:
+            content = ''.join(f.readlines()[-lines:])
+        else:
+            content = f.read()
+
+    return content, 200, {'Content-Type': 'text/plain; charset=utf-8'}
+
+
+@app.route('/api/jobs/history', methods=['GET'])
+def get_job_history():
+    """
+    获取任务历史（免Token认证，支持分页和过滤）
+
+    Query参数:
+      - page: 页码（默认1）
+      - per_page: 每页数量（默认20，最大100）
+      - status: 按状态过滤 (queued, running, success, failed, timeout, error)
+      - user: 按用户过滤
+      - mode: 按模式过滤 (rsync, upload, git)
+    """
+    # 获取参数
+    page = request.args.get('page', 1, type=int)
+    per_page = min(request.args.get('per_page', 20, type=int), 100)  # 最大100条
+
+    filters = {}
+    if request.args.get('status'):
+        filters['status'] = request.args.get('status')
+    if request.args.get('user'):
+        filters['user'] = request.args.get('user')
+    if request.args.get('mode'):
+        filters['mode'] = request.args.get('mode')
+
+    # 查询任务列表
+    jobs = job_db.get_jobs(
+        limit=per_page,
+        offset=(page - 1) * per_page,
+        filters=filters if filters else None
+    )
+
+    # 统计总数
+    total = job_db.count_jobs(filters=filters if filters else None)
+
+    return jsonify({
+        'jobs': jobs,
+        'total': total,
+        'page': page,
+        'per_page': per_page,
+        'pages': (total + per_page - 1) // per_page
+    })
+
+
+@app.route('/api/jobs/history/<job_id>', methods=['GET'])
+def get_history_job(job_id):
+    """获取单个历史任务详情（免Token认证）"""
+    job = job_db.get_job(job_id)
+
+    if not job:
+        # 尝试从Celery获取（兼容旧数据）
+        job_info = get_job_info(job_id)
+        if job_info.get('status') != 'queued':
+            return jsonify(job_info)
+        return jsonify({'error': 'Job not found'}), 404
+
+    return jsonify(job)
+
+
+@app.route('/api/jobs/history/<job_id>/logs', methods=['GET'])
+def get_history_job_logs(job_id):
+    """获取历史任务日志（免Token认证）"""
+    log_file = f"{DATA_DIR}/logs/{job_id}.log"
+
+    if not os.path.exists(log_file):
         return '', 200, {'Content-Type': 'text/plain; charset=utf-8'}
 
     # 支持tail参数
@@ -254,22 +399,37 @@ def list_jobs():
 
 
 @app.route('/api/stats', methods=['GET'])
-@require_auth
 def get_stats():
-    """获取统计信息"""
-    inspect = celery_app.control.inspect()
+    """获取统计信息（免Token认证，从数据库获取）"""
+    days = request.args.get('days', 7, type=int)
 
-    active = inspect.active() or {}
-    scheduled = inspect.scheduled() or {}
+    # 从数据库获取详细统计
+    stats = job_db.get_stats(days=days)
 
-    active_count = sum(len(tasks) for tasks in active.values())
-    queued_count = sum(len(tasks) for tasks in scheduled.values())
+    # 同时获取当前活跃任务数（来自Celery）
+    try:
+        inspect = celery_app.control.inspect()
+        active = inspect.active() or {}
+        scheduled = inspect.scheduled() or {}
 
-    return jsonify({
-        'running': active_count,
-        'queued': queued_count,
-        'workers': len(active)
-    })
+        active_count = sum(len(tasks) for tasks in active.values())
+        queued_count = sum(len(tasks) for tasks in scheduled.values())
+
+        stats['workers'] = len(active)
+        # 如果数据库中的数字与Celery不一致，使用Celery的数字（更准确）
+        if stats['running_count'] == 0 and active_count > 0:
+            stats['running_count'] = active_count
+        if stats['queued_count'] == 0 and queued_count > 0:
+            stats['queued_count'] = queued_count
+    except Exception as e:
+        print(f"获取Celery统计失败: {e}")
+        stats['workers'] = 0
+
+    # 为了兼容旧的Web界面，添加别名
+    stats['running'] = stats['running_count']
+    stats['queued'] = stats['queued_count']
+
+    return jsonify(stats)
 
 
 @app.route('/api/health', methods=['GET'])
@@ -579,8 +739,8 @@ WEB_TEMPLATE = '''<!DOCTYPE html>
     </div>
 
     <script>
-        const API_TOKEN = sessionStorage.getItem('ci_token') || prompt('请输入API Token:') || '';
-        if (API_TOKEN) sessionStorage.setItem('ci_token', API_TOKEN);
+        // API Token仅用于创建任务等写操作，查看历史和日志无需Token
+        const API_TOKEN = sessionStorage.getItem('ci_token') || '';
 
         function showMode(mode) {
             document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
@@ -603,7 +763,8 @@ WEB_TEMPLATE = '''<!DOCTYPE html>
 
         async function loadStats() {
             try {
-                const response = await apiCall('/api/stats');
+                // 统计接口已改为免Token
+                const response = await fetch('/api/stats');
                 const stats = await response.json();
 
                 document.getElementById('stat-running').textContent = stats.running || 0;
@@ -616,13 +777,14 @@ WEB_TEMPLATE = '''<!DOCTYPE html>
 
         async function loadJobs() {
             try {
-                const response = await apiCall('/api/jobs');
+                // 使用免Token的历史接口
+                const response = await fetch('/api/jobs/history?per_page=50');
                 const data = await response.json();
 
                 const jobList = document.getElementById('job-list');
 
                 if (data.jobs.length === 0) {
-                    jobList.innerHTML = '<div class="empty-state">暂无活跃任务</div>';
+                    jobList.innerHTML = '<div class="empty-state">暂无任务记录</div>';
                     return;
                 }
 
@@ -631,12 +793,14 @@ WEB_TEMPLATE = '''<!DOCTYPE html>
                         <div class="job-header">
                             <span class="job-id">${job.job_id}</span>
                             <div class="badges">
+                                ${job.mode ? `<span class="badge mode">${job.mode}</span>` : ''}
                                 <span class="badge status ${job.status}">${getStatusText(job.status)}</span>
                             </div>
                         </div>
                         <div class="job-info">
-                            ${job.progress ? `📊 进度: ${job.progress.step} ${job.progress.percent}%` : ''}
-                            ${job.result ? `⏱ 耗时: ${job.result.duration.toFixed(1)}s` : ''}
+                            ${job.user ? `👤 ${job.user} ` : ''}
+                            ${job.created_at ? `📅 ${formatTime(job.created_at)} ` : ''}
+                            ${job.duration ? `⏱ ${job.duration.toFixed(1)}s` : ''}
                         </div>
                     </div>
                 `).join('');
@@ -651,7 +815,8 @@ WEB_TEMPLATE = '''<!DOCTYPE html>
             document.getElementById('log-content').textContent = '加载中...';
 
             try {
-                const response = await apiCall(`/api/jobs/${jobId}/logs`);
+                // 使用免Token的历史接口
+                const response = await fetch(`/api/jobs/history/${jobId}/logs`);
                 const logs = await response.text();
                 document.getElementById('log-content').textContent = logs || '暂无日志';
             } catch (e) {
@@ -673,6 +838,25 @@ WEB_TEMPLATE = '''<!DOCTYPE html>
                 'timeout': '超时'
             };
             return map[status] || status;
+        }
+
+        function formatTime(isoString) {
+            try {
+                const date = new Date(isoString);
+                const now = new Date();
+                const diff = now - date;
+                const seconds = Math.floor(diff / 1000);
+                const minutes = Math.floor(seconds / 60);
+                const hours = Math.floor(minutes / 60);
+                const days = Math.floor(hours / 24);
+
+                if (days > 0) return `${days}天前`;
+                if (hours > 0) return `${hours}小时前`;
+                if (minutes > 0) return `${minutes}分钟前`;
+                return '刚刚';
+            } catch (e) {
+                return isoString;
+            }
         }
 
         async function loadData() {
