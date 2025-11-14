@@ -1,0 +1,55 @@
+version: '3.8'
+
+services:
+  # Redis服务
+  redis:
+    image: redis:7-alpine
+    container_name: remoteCI-test-redis
+    networks:
+      - remoteCI-test
+
+  # 远程CI服务器
+  remote-ci-server:
+    build:
+      context: ..
+      dockerfile: tests/Dockerfile.test
+    container_name: remoteCI-test-server
+    ports:
+      - "15000:5000"  # API端口（避免与宿主机5000冲突）
+    environment:
+      # API配置
+      CI_API_HOST: "0.0.0.0"
+      CI_API_PORT: "5000"
+      CI_API_TOKEN: "test-token-12345678"
+
+      # Redis配置
+      CI_BROKER_URL: "redis://redis:6379/0"
+      CI_RESULT_BACKEND: "redis://redis:6379/0"
+
+      # 任务配置
+      CI_MAX_CONCURRENT: "2"
+      CI_JOB_TIMEOUT: "600"
+      CI_LOG_RETENTION_DAYS: "7"
+
+      # 目录配置
+      CI_DATA_DIR: "/var/lib/remote-ci"
+      CI_WORK_DIR: "/tmp/remote-ci"
+      CI_WORKSPACE_DIR: "/var/ci-workspace"
+    volumes:
+      # 映射workspace（便于验证）
+      - ../test-workspace:/var/ci-workspace
+      # 映射日志（便于调试）
+      - ../test-logs:/var/lib/remote-ci/logs
+    depends_on:
+      - redis
+    networks:
+      - remoteCI-test
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/api/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+networks:
+  remoteCI-test:
+    driver: bridge

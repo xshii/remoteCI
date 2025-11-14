@@ -2,8 +2,8 @@
 
 # 核心框架
 Flask==3.0.0
-celery[redis]==5.3.4
-redis==5.0.1
+celery[redis]==5.5.3
+redis==5.0.1  # celery 5.5.3 支持 redis >=4.5.2,<6.5 (排除4.5.5和5.0.2)
 
 # 任务监控
 flower==2.0.1

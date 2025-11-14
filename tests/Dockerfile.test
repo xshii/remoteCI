@@ -1,0 +1,56 @@
+# Remote CI 测试环境 Dockerfile
+FROM python:3.10-slim
+
+# 安装系统依赖
+RUN apt-get update && apt-get install -y \
+    git \
+    curl \
+    rsync \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# 设置工作目录
+WORKDIR /opt/remote-ci
+
+# 复制项目文件
+COPY server/ ./server/
+COPY requirements.txt ./
+COPY .env.example ./.env
+
+# 安装Python依赖
+RUN pip install --no-cache-dir -r requirements.txt
+
+# 创建必要的目录
+RUN mkdir -p /var/lib/remote-ci/logs \
+    /var/lib/remote-ci/uploads \
+    /var/ci-workspace \
+    /tmp/remote-ci
+
+# 设置环境变量
+ENV PYTHONUNBUFFERED=1
+
+# 创建启动脚本
+RUN echo '#!/bin/bash\n\
+set -e\n\
+\n\
+echo "========================================"\n\
+echo "Remote CI Test Server Starting..."\n\
+echo "========================================"\n\
+echo "API: http://0.0.0.0:5000"\n\
+echo "Token: $CI_API_TOKEN"\n\
+echo "========================================"\n\
+\n\
+# 启动Celery Worker（后台）\n\
+cd /opt/remote-ci\n\
+celery -A server.celery_app worker --loglevel=info --concurrency=2 &\n\
+\n\
+# 等待一秒让Worker启动\n\
+sleep 1\n\
+\n\
+# 启动Flask API（前台）\n\
+python3 -m server.app\n\
+' > /opt/remote-ci/start.sh && chmod +x /opt/remote-ci/start.sh
+
+EXPOSE 5000
+
+CMD ["/opt/remote-ci/start.sh"]
