@@ -9,14 +9,40 @@
 - ✅ **易于扩展**：Python 代码更容易阅读和修改
 - ✅ **统一依赖管理**：使用标准的 Python 包管理
 
+## 🚀 推荐：使用统一客户端
+
+**新增**：`submit.py` - 统一的客户端脚本，整合了所有模式（upload、rsync、git）。
+
+```bash
+# Upload模式
+python3 submit.py upload "npm test" --project myapp
+
+# Rsync模式
+python3 submit.py rsync myproject "npm test"
+
+# Git模式
+python3 submit.py git https://github.com/user/repo.git main "npm test"
+
+# 查看帮助
+python3 submit.py --help
+python3 submit.py upload --help
+```
+
+**优势**：
+- ✅ 单一脚本，更易维护
+- ✅ 统一的命令行接口
+- ✅ 代码复用，减少重复
+- ✅ 支持所有功能（包括自定义排除、user_id等）
+
 ## 📋 文件说明
 
-| Python 脚本 | Bash 脚本对应 | 说明 |
-|------------|--------------|------|
-| `submit-upload.py` | `submit-upload.sh` | 上传模式客户端 |
-| `submit-upload-custom.py` | `submit-upload-custom.sh` | 支持自定义排除规则的上传模式 |
-| `submit-rsync.py` | `submit-rsync.sh` | rsync 模式客户端 |
-| `config_example.py` | `config.sh.example` | 配置文件示例 |
+| Python 脚本 | Bash 脚本对应 | 说明 | 状态 |
+|------------|--------------|------|------|
+| `submit.py` | - | **统一客户端（推荐）** | ✅ 推荐使用 |
+| `submit-upload.py` | `submit-upload.sh` | 上传模式客户端 | 📦 保留兼容 |
+| `submit-upload-custom.py` | `submit-upload-custom.sh` | 支持自定义排除规则的上传模式 | 📦 保留兼容 |
+| `submit-rsync.py` | `submit-rsync.sh` | rsync 模式客户端 | 📦 保留兼容 |
+| `config_example.py` | `config.sh.example` | 配置文件示例 | - |
 
 ## 🚀 快速开始
 
@@ -36,15 +62,64 @@ pip3 install requests
 # 方法1: 直接设置环境变量（推荐）
 export REMOTE_CI_API="http://your-server:5000"
 export REMOTE_CI_TOKEN="your-secret-token"
+export REMOTE_CI_USER_ID="12345"  # 可选，用于标识用户
 
 # 方法2: 创建配置文件
 cp config_example.py config.py
 # 编辑 config.py，修改配置
 ```
 
-### 3. 使用脚本
+### 3. 使用统一客户端（推荐）
 
-#### 上传模式（推荐）
+#### Upload模式
+
+```bash
+# 基础用法 - 上传当前目录
+python3 submit.py upload "npm test"
+
+# 指定项目名
+python3 submit.py upload "npm test" --project myapp
+
+# 只上传指定目录
+python3 submit.py upload "npm test" --path "src/ tests/"
+
+# 自定义排除规则
+python3 submit.py upload "npm test" --exclude "*.log,*.tmp,cache/"
+
+# 完整示例
+python3 submit.py upload "npm test" --project myapp --user-id 12345 --path "src/" --exclude "*.log"
+```
+
+#### Rsync模式
+
+```bash
+# 基础用法
+python3 submit.py rsync myproject "npm test"
+
+# 带用户ID
+python3 submit.py rsync myproject "npm test" --user-id 12345
+
+# 需要先配置环境变量
+export REMOTE_CI_HOST="ci-user@remote-ci-server"
+export WORKSPACE_BASE="/var/ci-workspace"
+```
+
+#### Git模式
+
+```bash
+# 克隆并构建
+python3 submit.py git https://github.com/user/repo.git main "npm test"
+
+# 指定commit
+python3 submit.py git https://github.com/user/repo.git main "npm test" --commit abc123
+
+# 带用户ID
+python3 submit.py git https://github.com/user/repo.git main "npm test" --user-id 12345
+```
+
+### 4. 使用独立脚本（兼容旧版）
+
+#### 上传模式
 
 ```bash
 # 基础用法 - 上传当前目录
@@ -52,9 +127,6 @@ python3 submit-upload.py "npm test"
 
 # 只上传指定目录
 python3 submit-upload.py "npm test" "src/ tests/"
-
-# 查看帮助
-python3 submit-upload.py --help
 ```
 
 #### 自定义上传模式
@@ -65,9 +137,6 @@ python3 submit-upload-custom.py "npm test" "src/ tests/" ""
 
 # 上传时排除指定文件
 python3 submit-upload-custom.py "npm test" "." "*.log,*.tmp,cache/"
-
-# 只上传特定文件
-python3 submit-upload-custom.py "npm test" "package.json src/ Dockerfile" ""
 ```
 
 #### rsync 模式
@@ -75,9 +144,6 @@ python3 submit-upload-custom.py "npm test" "package.json src/ Dockerfile" ""
 ```bash
 # 需要先配置 SSH 密钥
 python3 submit-rsync.py myproject "npm test"
-
-# 项目名称会自动从 CI_PROJECT_NAME 环境变量读取
-python3 submit-rsync.py "" "npm test"
 ```
 
 ## 📝 使用示例
