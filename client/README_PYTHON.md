@@ -9,40 +9,18 @@
 - ✅ **易于扩展**：Python 代码更容易阅读和修改
 - ✅ **统一依赖管理**：使用标准的 Python 包管理
 
-## 🚀 推荐：使用统一客户端
+## 📋 文件说明
 
-**新增**：`submit.py` - 统一的客户端脚本，整合了所有模式（upload、rsync、git）。
-
-```bash
-# Upload模式
-python3 submit.py upload "npm test" --project myapp
-
-# Rsync模式
-python3 submit.py rsync myproject "npm test"
-
-# Git模式
-python3 submit.py git https://github.com/user/repo.git main "npm test"
-
-# 查看帮助
-python3 submit.py --help
-python3 submit.py upload --help
-```
+| Python 脚本 | Bash 脚本对应 | 说明 |
+|------------|--------------|------|
+| `submit.py` | - | **统一客户端（整合upload/rsync/git三种模式）** |
+| `config_example.py` | `config.sh.example` | 配置文件示例 |
 
 **优势**：
 - ✅ 单一脚本，更易维护
 - ✅ 统一的命令行接口
 - ✅ 代码复用，减少重复
-- ✅ 支持所有功能（包括自定义排除、user_id等）
-
-## 📋 文件说明
-
-| Python 脚本 | Bash 脚本对应 | 说明 | 状态 |
-|------------|--------------|------|------|
-| `submit.py` | - | **统一客户端（推荐）** | ✅ 推荐使用 |
-| `submit-upload.py` | `submit-upload.sh` | 上传模式客户端 | 📦 保留兼容 |
-| `submit-upload-custom.py` | `submit-upload-custom.sh` | 支持自定义排除规则的上传模式 | 📦 保留兼容 |
-| `submit-rsync.py` | `submit-rsync.sh` | rsync 模式客户端 | 📦 保留兼容 |
-| `config_example.py` | `config.sh.example` | 配置文件示例 | - |
+- ✅ 支持所有功能（upload、rsync、git、自定义排除、user_id等）
 
 ## 🚀 快速开始
 
@@ -69,9 +47,9 @@ cp config_example.py config.py
 # 编辑 config.py，修改配置
 ```
 
-### 3. 使用统一客户端（推荐）
+### 3. 使用客户端
 
-#### Upload模式
+#### Upload模式（上传代码）
 
 ```bash
 # 基础用法 - 上传当前目录
@@ -90,7 +68,7 @@ python3 submit.py upload "npm test" --exclude "*.log,*.tmp,cache/"
 python3 submit.py upload "npm test" --project myapp --user-id 12345 --path "src/" --exclude "*.log"
 ```
 
-#### Rsync模式
+#### Rsync模式（同步代码）
 
 ```bash
 # 基础用法
@@ -104,7 +82,7 @@ export REMOTE_CI_HOST="ci-user@remote-ci-server"
 export WORKSPACE_BASE="/var/ci-workspace"
 ```
 
-#### Git模式
+#### Git模式（克隆代码）
 
 ```bash
 # 克隆并构建
@@ -117,33 +95,13 @@ python3 submit.py git https://github.com/user/repo.git main "npm test" --commit 
 python3 submit.py git https://github.com/user/repo.git main "npm test" --user-id 12345
 ```
 
-### 4. 使用独立脚本（兼容旧版）
-
-#### 上传模式
+#### 查看帮助
 
 ```bash
-# 基础用法 - 上传当前目录
-python3 submit-upload.py "npm test"
-
-# 只上传指定目录
-python3 submit-upload.py "npm test" "src/ tests/"
-```
-
-#### 自定义上传模式
-
-```bash
-# 只上传特定目录
-python3 submit-upload-custom.py "npm test" "src/ tests/" ""
-
-# 上传时排除指定文件
-python3 submit-upload-custom.py "npm test" "." "*.log,*.tmp,cache/"
-```
-
-#### rsync 模式
-
-```bash
-# 需要先配置 SSH 密钥
-python3 submit-rsync.py myproject "npm test"
+python3 submit.py --help              # 总体帮助
+python3 submit.py upload --help       # Upload模式帮助
+python3 submit.py rsync --help        # Rsync模式帮助
+python3 submit.py git --help          # Git模式帮助
 ```
 
 ## 📝 使用示例
@@ -160,7 +118,7 @@ remote_build:
   before_script:
     - pip3 install requests
   script:
-    - python3 client/submit-upload.py "npm install && npm test"
+    - python3 client/submit.py upload "npm install && npm test" --project $CI_PROJECT_NAME
 ```
 
 ### GitHub Actions 集成
@@ -183,7 +141,7 @@ jobs:
         env:
           REMOTE_CI_API: ${{ secrets.REMOTE_CI_API }}
           REMOTE_CI_TOKEN: ${{ secrets.REMOTE_CI_TOKEN }}
-        run: python3 client/submit-upload.py "npm install && npm test"
+        run: python3 client/submit.py upload "npm install && npm test" --project ${{ github.event.repository.name }}
 ```
 
 ## 🔧 环境变量说明
@@ -192,6 +150,7 @@ jobs:
 |---------|------|--------|
 | `REMOTE_CI_API` | 远程CI API地址 | `http://remote-ci-server:5000` |
 | `REMOTE_CI_TOKEN` | API认证Token | `your-api-token` |
+| `REMOTE_CI_USER_ID` | 用户ID（可选） | - |
 | `REMOTE_CI_HOST` | SSH地址（rsync模式） | `ci-user@remote-ci-server` |
 | `WORKSPACE_BASE` | Workspace目录（rsync模式） | `/var/ci-workspace` |
 | `CI_TIMEOUT` | 等待超时时间（秒） | `1500` (25分钟) |
@@ -200,13 +159,14 @@ jobs:
 
 ### 必需依赖
 
-- **Python 3.8+**：所有脚本的运行环境
+- **Python 3.8+**：脚本运行环境
 - **requests**：HTTP 请求库（`pip3 install requests`）
 
-### 可选依赖
+### 可选依赖（按模式）
 
-- **rsync**：仅 `submit-rsync.py` 需要
-- **ssh**：仅 `submit-rsync.py` 需要
+- **rsync**：rsync模式需要
+- **ssh**：rsync模式需要
+- **git**：git模式需要（通常已预装）
 
 ## 💡 高级用法
 
@@ -215,7 +175,7 @@ jobs:
 ```bash
 # 设置40分钟超时
 export CI_TIMEOUT=2400
-python3 submit-upload.py "npm test"
+python3 submit.py upload "npm test"
 ```
 
 ### 使用配置文件
@@ -248,10 +208,10 @@ pip3 install requests
 
 ```bash
 # 解决方案：添加可执行权限
-chmod +x submit-upload.py
+chmod +x submit.py
 ```
 
-### 问题3: rsync 命令未找到
+### 问题3: rsync 命令未找到（rsync模式）
 
 ```bash
 # Ubuntu/Debian
@@ -264,14 +224,17 @@ sudo yum install rsync
 brew install rsync
 ```
 
-## 🔄 与 Bash 脚本的兼容性
-
-Python 脚本和 Bash 脚本功能完全相同，可以互换使用：
+### 问题4: git 命令未找到（git模式）
 
 ```bash
-# 这两个命令效果相同
-bash submit-upload.sh "npm test"
-python3 submit-upload.py "npm test"
+# Ubuntu/Debian
+sudo apt-get install git
+
+# CentOS/RHEL
+sudo yum install git
+
+# macOS (通常已预装)
+brew install git
 ```
 
 ## 📚 更多信息
