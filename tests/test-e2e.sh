@@ -34,12 +34,12 @@ print_header() {
 
 print_success() {
     echo -e "${GREEN}✓ $1${NC}"
-    ((TESTS_PASSED++))
+    TESTS_PASSED=$((TESTS_PASSED + 1))
 }
 
 print_error() {
     echo -e "${RED}✗ $1${NC}"
-    ((TESTS_FAILED++))
+    TESTS_FAILED=$((TESTS_FAILED + 1))
 }
 
 print_info() {
@@ -61,7 +61,7 @@ wait_for_job() {
         fi
 
         sleep 1
-        ((elapsed++))
+        elapsed=$((elapsed + 1))
     done
 
     echo "timeout"
@@ -102,7 +102,7 @@ while [ $attempt -lt $max_attempts ]; do
         echo "  等待中... ($attempt/$max_attempts)"
     fi
     sleep 1
-    ((attempt++))
+    attempt=$((attempt + 1))
 done
 
 if [ $attempt -eq $max_attempts ]; then
