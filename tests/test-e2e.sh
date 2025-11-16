@@ -91,12 +91,15 @@ print_info "启动Docker容器..."
 docker compose -f tests/docker-compose.test.yml up -d --build
 
 print_info "等待服务就绪..."
-max_attempts=30
+max_attempts=60
 attempt=0
 while [ $attempt -lt $max_attempts ]; do
     if curl -s -f "$REMOTE_CI_API/api/health" > /dev/null 2>&1; then
         print_success "远程CI服务已就绪"
         break
+    fi
+    if [ $((attempt % 10)) -eq 0 ]; then
+        echo "  等待中... ($attempt/$max_attempts)"
     fi
     sleep 1
     ((attempt++))
