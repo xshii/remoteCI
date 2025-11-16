@@ -81,14 +81,14 @@ print_header "Remote CI 端到端测试套件"
 print_header "步骤1: 启动测试环境"
 
 print_info "停止旧容器..."
-docker-compose -f tests/docker-compose.test.yml down -v 2>/dev/null || true
+docker compose -f tests/docker-compose.test.yml down -v 2>/dev/null || true
 
 print_info "清理测试数据..."
 rm -rf test-workspace test-logs
 mkdir -p test-workspace test-logs
 
 print_info "启动Docker容器..."
-docker-compose -f tests/docker-compose.test.yml up -d --build
+docker compose -f tests/docker-compose.test.yml up -d --build
 
 print_info "等待服务就绪..."
 max_attempts=30
@@ -104,7 +104,7 @@ done
 
 if [ $attempt -eq $max_attempts ]; then
     print_error "远程CI服务启动超时"
-    docker-compose -f tests/docker-compose.test.yml logs
+    docker compose -f tests/docker-compose.test.yml logs
     exit 1
 fi
 
@@ -371,8 +371,8 @@ if [ $TESTS_FAILED -eq 0 ]; then
     echo "✓ 所有测试通过！"
     echo "==========================================${NC}"
 
-    print_info "查看容器日志: docker-compose -f tests/docker-compose.test.yml logs"
-    print_info "停止环境: docker-compose -f tests/docker-compose.test.yml down -v"
+    print_info "查看容器日志: docker compose -f tests/docker-compose.test.yml logs"
+    print_info "停止环境: docker compose -f tests/docker-compose.test.yml down -v"
 
     exit 0
 else
@@ -380,7 +380,7 @@ else
     echo "✗ 部分测试失败"
     echo "==========================================${NC}"
 
-    print_info "查看容器日志: docker-compose -f tests/docker-compose.test.yml logs"
+    print_info "查看容器日志: docker compose -f tests/docker-compose.test.yml logs"
 
     exit 1
 fi
