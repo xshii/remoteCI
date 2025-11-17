@@ -1,0 +1,39 @@
+# Remote CI 配置文件示例
+# 将此文件重命名为 .remoteCI.yml 或 remoteCI.yml 使用
+
+# Upload模式配置
+upload:
+  # 要上传的路径列表（可选，默认: .）
+  # 优先级：命令行 --path 参数 > 配置文件 > 默认值
+  paths:
+    - src/
+    - tests/
+    - package.json
+    - package-lock.json
+    # 可以指定具体文件或目录
+
+  # 排除规则列表（可选，追加到默认排除规则）
+  # 默认已排除：.git, node_modules, __pycache__, *.pyc, .pytest_cache, dist, build, .env, *.log
+  # 命令行 --exclude 参数会追加到配置文件规则
+  exclude:
+    - "*.log"
+    - "*.tmp"
+    - cache/
+    - __pycache__/
+    - "*.pyc"
+    - .DS_Store
+
+# 使用示例：
+#
+# 1. 使用配置文件（自动查找 .remoteCI.yml）
+#    python submit.py upload "npm test"
+#
+# 2. 指定配置文件
+#    python submit.py upload "npm test" --config custom.yml
+#
+# 3. 命令行参数覆盖配置文件
+#    python submit.py upload "npm test" --path "dist/"
+#
+# 4. 追加排除规则
+#    python submit.py upload "npm test" --exclude "*.bak"
+#    （会合并配置文件的exclude和命令行的exclude）

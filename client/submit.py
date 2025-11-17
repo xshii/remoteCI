@@ -27,9 +27,50 @@ import requests
 import subprocess
 import fnmatch
 from pathlib import Path
+import yaml
 
 
 # ============ 辅助函数 ============
+
+def load_config_file(config_path=None):
+    """
+    加载YAML配置文件
+
+    Args:
+        config_path: 配置文件路径，None则自动查找
+
+    Returns:
+        配置字典，未找到返回{}
+    """
+    # 默认配置文件名
+    default_config_files = ['.remoteCI.yml', 'remoteCI.yml', '.remoteCI.yaml', 'remoteCI.yaml']
+
+    # 如果指定了配置文件
+    if config_path:
+        if os.path.exists(config_path):
+            try:
+                with open(config_path, 'r', encoding='utf-8') as f:
+                    return yaml.safe_load(f) or {}
+            except Exception as e:
+                print(f"⚠ 警告: 无法加载配置文件 {config_path}: {e}")
+                return {}
+        else:
+            print(f"⚠ 警告: 配置文件不存在: {config_path}")
+            return {}
+
+    # 自动查找配置文件
+    for config_file in default_config_files:
+        if os.path.exists(config_file):
+            try:
+                with open(config_file, 'r', encoding='utf-8') as f:
+                    config = yaml.safe_load(f) or {}
+                    print(f"✓ 已加载配置文件: {config_file}")
+                    return config
+            except Exception as e:
+                print(f"⚠ 警告: 无法加载配置文件 {config_file}: {e}")
+
+    return {}
+
 
 def detect_user_id():
     """
@@ -217,8 +258,37 @@ class RemoteCIClient:
     # ========== Upload 模式 ==========
 
     def upload_mode(self, script, upload_path='.', project_name=None, user_id=None,
-                    exclude_patterns=None):
+                    exclude_patterns=None, config=None):
         """上传模式：打包代码并上传"""
+        # 从配置文件读取默认值（如果有）
+        if config and 'upload' in config:
+            upload_config = config['upload']
+
+            # paths: 优先使用命令行参数，否则使用配置文件
+            if upload_path == '.' and 'paths' in upload_config:
+                paths = upload_config['paths']
+                if isinstance(paths, list):
+                    upload_path = ' '.join(paths)
+                elif isinstance(paths, str):
+                    upload_path = paths
+
+            # exclude: 合并配置文件和命令行参数
+            if 'exclude' in upload_config:
+                config_excludes = upload_config['exclude']
+                if isinstance(config_excludes, list):
+                    config_exclude_str = ','.join(config_excludes)
+                elif isinstance(config_excludes, str):
+                    config_exclude_str = config_excludes
+                else:
+                    config_exclude_str = None
+
+                # 合并排除规则
+                if config_exclude_str:
+                    if exclude_patterns:
+                        exclude_patterns = f"{config_exclude_str},{exclude_patterns}"
+                    else:
+                        exclude_patterns = config_exclude_str
+
         print("=" * 42)
         print("Remote CI - 上传模式")
         print("=" * 42)
@@ -575,9 +645,25 @@ def main():
   WORKSPACE_BASE      - Workspace基础目录（rsync模式用）
   CI_TIMEOUT          - 等待超时时间/秒 (默认: 1500)
 
+配置文件 (.remoteCI.yml):
+  upload:
+    paths:              # 要上传的路径列表
+      - src/
+      - tests/
+      - package.json
+    exclude:            # 排除规则列表
+      - "*.log"
+      - "*.tmp"
+      - cache/
+
 示例:
-  # Upload模式
+  # Upload模式 - 使用默认配置文件
   python submit.py upload "npm test"
+
+  # Upload模式 - 指定配置文件
+  python submit.py upload "npm test" --config custom.yml
+
+  # Upload模式 - 命令行参数（覆盖配置文件）
   python submit.py upload "npm test" --project myapp --user-id 12345
   python submit.py upload "npm test" --path "src/ tests/" --exclude "*.log,*.tmp"
 
@@ -605,6 +691,7 @@ def main():
 
     # 全局参数
     parser.add_argument('--user-id', help='用户ID（可选，用于标识提交者）')
+    parser.add_argument('--config', '-c', help='配置文件路径（默认: .remoteCI.yml）')
 
     # 子命令
     subparsers = parser.add_subparsers(dest='mode', help='执行模式')
@@ -613,8 +700,8 @@ def main():
     upload_parser = subparsers.add_parser('upload', help='上传模式')
     upload_parser.add_argument('script', help='构建脚本')
     upload_parser.add_argument('--project', '-p', dest='project_name', help='项目名称（留空自动检测）')
-    upload_parser.add_argument('--path', default='.', help='上传路径（默认: .）')
-    upload_parser.add_argument('--exclude', help='自定义排除模式（逗号分隔）')
+    upload_parser.add_argument('--path', default='.', help='上传路径（默认: .，可在配置文件指定）')
+    upload_parser.add_argument('--exclude', help='自定义排除模式（逗号分隔，追加到配置文件规则）')
 
     # Rsync 子命令
     rsync_parser = subparsers.add_parser('rsync', help='rsync模式')
@@ -639,6 +726,9 @@ def main():
         parser.print_help()
         return 1
 
+    # 加载配置文件
+    config = load_config_file(args.config if hasattr(args, 'config') else None)
+
     # 从环境变量读取配置
     api_url = os.environ.get('REMOTE_CI_API', 'http://remote-ci-server:5000')
     api_token = os.environ.get('REMOTE_CI_TOKEN', 'your-api-token')
@@ -655,7 +745,8 @@ def main():
             upload_path=args.path,
             project_name=args.project_name,
             user_id=user_id,
-            exclude_patterns=args.exclude
+            exclude_patterns=args.exclude,
+            config=config
         )
 
     elif args.mode == 'rsync':
