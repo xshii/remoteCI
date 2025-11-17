@@ -48,7 +48,7 @@ print_info() {
 
 wait_for_job() {
     local job_id=$1
-    local max_wait=30
+    local max_wait=120  # 增加到120秒，适应CI环境
     local elapsed=0
 
     while [ $elapsed -lt $max_wait ]; do
@@ -58,6 +58,11 @@ wait_for_job() {
         if [ "$status" = "success" ] || [ "$status" = "failed" ]; then
             echo "$status"
             return 0
+        fi
+
+        # 每10秒显示一次进度
+        if [ $((elapsed % 10)) -eq 0 ] && [ $elapsed -gt 0 ]; then
+            echo "  等待中... 状态: $status ($elapsed/${max_wait}s)" >&2
         fi
 
         sleep 1
