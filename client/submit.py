@@ -359,12 +359,22 @@ class RemoteCIClient:
                     continue
 
                 if os.path.exists(path):
+                    # 标准化路径：去掉尾部斜杠，但保持相对路径结构
+                    normalized_path = path.rstrip('/')
+
                     if os.path.isdir(path):
-                        tar.add(path, arcname=os.path.basename(path) if path != '.' else '.',
+                        # 对于目录：保持原始相对路径
+                        # src/ -> arcname='src'
+                        # config/templates/ -> arcname='config/templates'
+                        arcname = normalized_path if normalized_path != '.' else '.'
+                        tar.add(path, arcname=arcname,
                                filter=lambda ti: self._filter_tarinfo(ti, all_excludes))
                     else:
+                        # 对于文件：保持原始相对路径
+                        # package.json -> arcname='package.json'
+                        # config/app.json -> arcname='config/app.json'
                         if not self._should_exclude(path, all_excludes):
-                            tar.add(path, arcname=os.path.basename(path))
+                            tar.add(path, arcname=normalized_path)
                 else:
                     print(f"⚠ 警告: 路径不存在: {path}")
 

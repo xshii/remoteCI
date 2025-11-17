@@ -5,12 +5,27 @@
 upload:
   # 要上传的路径列表（可选，默认: .）
   # 优先级：命令行 --path 参数 > 配置文件 > 默认值
+  #
+  # 重要：所有路径都是相对于此配置文件所在目录的相对路径
+  # 打包后会保持这些相对路径结构
+  #
+  # 示例：
+  #   配置: paths: [src/, config/app.json, package.json]
+  #   打包后结构:
+  #     src/
+  #       file1.js
+  #       file2.js
+  #     config/
+  #       app.json
+  #     package.json
   paths:
-    - src/
-    - tests/
-    - package.json
-    - package-lock.json
-    # 可以指定具体文件或目录
+    - src/              # 整个src目录
+    - tests/            # 整个tests目录
+    - config/           # 整个config目录（如果有）
+    - package.json      # 单个文件
+    - package-lock.json # 单个文件
+    # 可以混合指定目录和文件
+    # 嵌套路径也会保持：config/app.json -> config/app.json
 
   # 排除规则列表（可选，追加到默认排除规则）
   # 默认已排除：.git, node_modules, __pycache__, *.pyc, .pytest_cache, dist, build, .env, *.log
