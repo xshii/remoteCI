@@ -635,6 +635,28 @@ WEB_TEMPLATE = '''<!DOCTYPE html>
             color: #666;
         }
 
+        .filter-input {
+            padding: 6px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+            width: 200px;
+        }
+        .filter-input:focus {
+            outline: none;
+            border-color: #007bff;
+        }
+        .clear-filter-btn {
+            padding: 6px 12px;
+            background: #6c757d;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .clear-filter-btn:hover { background: #5a6268; }
+
         .mode-tabs {
             margin-bottom: 20px;
             padding: 20px;
@@ -725,6 +747,8 @@ WEB_TEMPLATE = '''<!DOCTYPE html>
             <div class="jobs-header">
                 <h2>任务列表</h2>
                 <div class="controls">
+                    <input type="text" id="user-id-filter" class="filter-input" placeholder="按用户ID筛选..." onkeypress="if(event.key==='Enter')loadData()">
+                    <button class="clear-filter-btn" onclick="clearFilter()">清除</button>
                     <div class="auto-refresh">
                         <input type="checkbox" id="auto-refresh" checked>
                         <label for="auto-refresh">自动刷新 (5s)</label>
@@ -787,8 +811,17 @@ WEB_TEMPLATE = '''<!DOCTYPE html>
 
         async function loadJobs() {
             try {
+                // 构建查询参数
+                const params = new URLSearchParams({ per_page: '50' });
+
+                // 添加用户ID筛选
+                const userId = document.getElementById('user-id-filter').value.trim();
+                if (userId) {
+                    params.append('user_id', userId);
+                }
+
                 // 使用免Token的历史接口
-                const response = await fetch('/api/jobs/history?per_page=50');
+                const response = await fetch(`/api/jobs/history?${params}`);
                 const data = await response.json();
 
                 const jobList = document.getElementById('job-list');
@@ -817,6 +850,11 @@ WEB_TEMPLATE = '''<!DOCTYPE html>
             } catch (e) {
                 console.error('Failed to load jobs:', e);
             }
+        }
+
+        function clearFilter() {
+            document.getElementById('user-id-filter').value = '';
+            loadData();
         }
 
         async function showLogs(jobId) {
