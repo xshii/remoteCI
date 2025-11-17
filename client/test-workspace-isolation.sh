@@ -48,7 +48,7 @@ workspace2 = generate_workspace_name('myproject', use_uuid=True)
 
 print(f'UUID 1: {workspace1}')
 print(f'UUID 2: {workspace2}')
-print(f'唯一性: {"✓ 通过" if workspace1 != workspace2 else "✗ 失败"}')
+print(f'唯一性: {\"✓ 通过\" if workspace1 != workspace2 else \"✗ 失败\"}')
 "
 echo
 
