@@ -147,7 +147,15 @@ class RemoteCIClient:
 
     # ========== 通用方法 ==========
 
-    def wait_for_result(self, job_id, max_wait=1500, interval=10):
+    def _build_web_url(self, user_id=None):
+        """构建Web查看链接（带筛选参数）"""
+        if user_id:
+            # URL编码user_id
+            from urllib.parse import quote
+            return f"{self.api_url}/?user_id={quote(user_id)}"
+        return self.api_url
+
+    def wait_for_result(self, job_id, max_wait=1500, interval=10, user_id=None):
         """等待任务结果"""
         print(">>> 等待构建结果")
         print()
@@ -202,7 +210,8 @@ class RemoteCIClient:
         print("⚠ 等待超时")
         print("=" * 42)
         print("任务仍在远程CI执行中...")
-        print(f"查看任务: {self.api_url}/#job-{job_id}")
+        web_url = self._build_web_url(user_id)
+        print(f"查看任务: {web_url}")
         print()
         print("远程CI将继续执行，结果可通过Web界面查看")
         print("=" * 42)
@@ -315,7 +324,7 @@ class RemoteCIClient:
                 return 1
 
             # 等待结果
-            return self.wait_for_result(job_id)
+            return self.wait_for_result(job_id, user_id=user_id)
 
         finally:
             # 清理临时文件
@@ -439,7 +448,8 @@ class RemoteCIClient:
 
                 print("✓ 任务已提交")
                 print(f"任务ID: {job_id}")
-                print(f"Web查看: {self.api_url}/#job-{job_id}")
+                web_url = self._build_web_url(user_id)
+                print(f"Web查看: {web_url}")
                 print()
 
                 return job_id
@@ -476,7 +486,7 @@ class RemoteCIClient:
             return 1
 
         # 等待结果
-        return self.wait_for_result(job_id)
+        return self.wait_for_result(job_id, user_id=user_id)
 
     def _sync_code(self, project_name, remote_host, workspace_base):
         """同步代码到远程CI"""
@@ -558,7 +568,8 @@ class RemoteCIClient:
 
             print("✓ 任务已提交")
             print(f"任务ID: {job_id}")
-            print(f"Web查看: {self.api_url}/#job-{job_id}")
+            web_url = self._build_web_url(user_id)
+            print(f"Web查看: {web_url}")
             print()
 
             return job_id
@@ -590,7 +601,7 @@ class RemoteCIClient:
             return 1
 
         # 等待结果
-        return self.wait_for_result(job_id)
+        return self.wait_for_result(job_id, user_id=user_id)
 
     def _submit_git_job(self, repo, branch, script, commit=None, user_id=None):
         """提交git任务"""
@@ -623,7 +634,8 @@ class RemoteCIClient:
 
             print("✓ 任务已提交")
             print(f"任务ID: {job_id}")
-            print(f"Web查看: {self.api_url}/#job-{job_id}")
+            web_url = self._build_web_url(user_id)
+            print(f"Web查看: {web_url}")
             print()
 
             return job_id
