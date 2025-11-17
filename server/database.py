@@ -38,7 +38,6 @@ class JobDatabase:
                 mode TEXT NOT NULL,
                 status TEXT NOT NULL,
                 script TEXT NOT NULL,
-                user TEXT NOT NULL,
                 user_id TEXT,
                 project_name TEXT,
 
@@ -70,7 +69,6 @@ class JobDatabase:
 
         # 创建索引
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_jobs_status ON ci_jobs(status)')
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_jobs_user ON ci_jobs(user)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_jobs_user_id ON ci_jobs(user_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_jobs_created_at ON ci_jobs(created_at DESC)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_jobs_mode ON ci_jobs(mode)')
@@ -88,7 +86,7 @@ class JobDatabase:
 
         Args:
             job_id: 任务ID
-            job_data: 任务数据，包含 mode, script, user, user_id, workspace, repo, branch 等
+            job_data: 任务数据，包含 mode, script, user_id, workspace, repo, branch 等
 
         Returns:
             bool: 是否创建成功
@@ -99,15 +97,14 @@ class JobDatabase:
 
             cursor.execute('''
                 INSERT INTO ci_jobs (
-                    job_id, mode, status, script, user, user_id, project_name,
+                    job_id, mode, status, script, user_id, project_name,
                     created_at, log_file, workspace, repo_url, branch, metadata
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 job_id,
                 job_data.get('mode', 'unknown'),
                 'queued',
                 job_data.get('script', ''),
-                job_data.get('user', 'anonymous'),
                 job_data.get('user_id'),
                 job_data.get('project_name', job_data.get('workspace', '').split('/')[-1] if job_data.get('workspace') else None),
                 datetime.now().isoformat(),
@@ -226,7 +223,7 @@ class JobDatabase:
         Args:
             limit: 返回数量限制
             offset: 偏移量
-            filters: 过滤条件，支持 status, user, user_id, mode, project_name
+            filters: 过滤条件，支持 status, user_id, mode, project_name
 
         Returns:
             任务列表
@@ -244,9 +241,6 @@ class JobDatabase:
                 if filters.get('status'):
                     conditions.append('status = ?')
                     params.append(filters['status'])
-                if filters.get('user'):
-                    conditions.append('user = ?')
-                    params.append(filters['user'])
                 if filters.get('user_id'):
                     conditions.append('user_id = ?')
                     params.append(filters['user_id'])
@@ -278,7 +272,7 @@ class JobDatabase:
         统计任务数量
 
         Args:
-            filters: 过滤条件，支持 status, user, user_id, mode, project_name
+            filters: 过滤条件，支持 status, user_id, mode, project_name
 
         Returns:
             任务总数
@@ -295,9 +289,6 @@ class JobDatabase:
                 if filters.get('status'):
                     conditions.append('status = ?')
                     params.append(filters['status'])
-                if filters.get('user'):
-                    conditions.append('user = ?')
-                    params.append(filters['user'])
                 if filters.get('user_id'):
                     conditions.append('user_id = ?')
                     params.append(filters['user_id'])
@@ -374,17 +365,17 @@ class JobDatabase:
 
             stats['by_mode'] = {row[0]: row[1] for row in cursor.fetchall()}
 
-            # 按用户统计
+            # 按用户ID统计
             cursor.execute('''
-                SELECT user, COUNT(*) as count
+                SELECT user_id, COUNT(*) as count
                 FROM ci_jobs
-                WHERE created_at > ?
-                GROUP BY user
+                WHERE created_at > ? AND user_id IS NOT NULL
+                GROUP BY user_id
                 ORDER BY count DESC
                 LIMIT 10
             ''', (cutoff,))
 
-            stats['by_user'] = {row[0]: row[1] for row in cursor.fetchall()}
+            stats['by_user_id'] = {row[0]: row[1] for row in cursor.fetchall()}
 
             return stats
 
@@ -400,7 +391,7 @@ class JobDatabase:
                 'avg_duration': 0,
                 'days': days,
                 'by_mode': {},
-                'by_user': {}
+                'by_user_id': {}
             }
 
     def cleanup_old_jobs(self, days: int = 30) -> int:
@@ -442,7 +433,7 @@ if __name__ == '__main__':
     db.create_job(test_job_id, {
         'mode': 'upload',
         'script': 'npm test',
-        'user': 'test-user',
+        'user_id': 'test-user-123',
         'log_file': f'/tmp/logs/{test_job_id}.log'
     })
 

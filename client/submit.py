@@ -409,8 +409,6 @@ class RemoteCIClient:
         """提交上传任务"""
         print(">>> 步骤 2/3: 上传代码并提交任务")
 
-        user = os.environ.get('USER', 'unknown')
-
         if project_name is None:
             project_name = self._detect_project_name()
 
@@ -418,7 +416,6 @@ class RemoteCIClient:
             files = {'code': ('code.tar.gz', f, 'application/gzip')}
             data = {
                 'script': script,
-                'user': user,
                 'project_name': project_name
             }
             if user_id:
@@ -537,12 +534,9 @@ class RemoteCIClient:
         """提交rsync任务"""
         print(">>> 步骤 2/3: 提交构建任务")
 
-        user = os.environ.get('USER', 'unknown')
-
         payload = {
             'workspace': workspace_path,
-            'script': script,
-            'user': user
+            'script': script
         }
         if user_id:
             payload['user_id'] = user_id
@@ -602,13 +596,10 @@ class RemoteCIClient:
         """提交git任务"""
         print(">>> 提交构建任务")
 
-        user = os.environ.get('USER', 'unknown')
-
         payload = {
             'repo': repo,
             'branch': branch,
-            'script': script,
-            'user': user
+            'script': script
         }
         if commit:
             payload['commit'] = commit

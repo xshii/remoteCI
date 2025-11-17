@@ -42,7 +42,7 @@ def execute_build(self, job_data):
         job_data: {
             'mode': 'rsync' | 'upload' | 'git',
             'script': '构建脚本',
-            'user': '提交者',
+            'user_id': '提交者ID',
 
             # rsync模式
             'workspace': '/var/ci-workspace/project',
@@ -89,7 +89,9 @@ def execute_build(self, job_data):
         log(f"任务ID: {task_id}")
         log(f"开始时间: {start_time.isoformat()}")
         log(f"模式: {job_data.get('mode', 'unknown')}")
-        log(f"提交者: {job_data.get('user', 'anonymous')}")
+        user_id = job_data.get('user_id')
+        if user_id:
+            log(f"提交者ID: {user_id}")
         log("=" * 70)
         log("")
 
