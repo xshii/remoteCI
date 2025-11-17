@@ -1,0 +1,110 @@
+version: '3.8'
+
+services:
+  # Redis - 消息队列和结果后端
+  redis:
+    image: redis:7-alpine
+    container_name: remoteCI-test-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  # Flask API 服务
+  api:
+    build:
+      context: ..
+      dockerfile: test/Dockerfile
+    container_name: remoteCI-test-api
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      - CI_API_HOST=0.0.0.0
+      - CI_API_PORT=5000
+      - CI_API_TOKEN=${CI_API_TOKEN:-test-token-only}
+      - CI_BROKER_URL=redis://redis:6379/0
+      - CI_RESULT_BACKEND=redis://redis:6379/0
+      - CI_DATA_DIR=/app/data
+      - CI_WORK_DIR=/tmp/remote-ci
+      - CI_WORKSPACE_DIR=/var/ci-workspace
+      - CI_MAX_CONCURRENT=${CI_MAX_CONCURRENT:-2}
+      - CI_JOB_TIMEOUT=${CI_JOB_TIMEOUT:-3600}
+    volumes:
+      - ../data:/app/data
+      - ci_workspace:/var/ci-workspace
+      - ci_work:/tmp/remote-ci
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: python -m server.app
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Celery Worker - 执行构建任务
+  worker:
+    build:
+      context: ..
+      dockerfile: test/Dockerfile
+    container_name: remoteCI-test-worker
+    restart: unless-stopped
+    environment:
+      - CI_BROKER_URL=redis://redis:6379/0
+      - CI_RESULT_BACKEND=redis://redis:6379/0
+      - CI_DATA_DIR=/app/data
+      - CI_WORK_DIR=/tmp/remote-ci
+      - CI_WORKSPACE_DIR=/var/ci-workspace
+      - CI_MAX_CONCURRENT=${CI_MAX_CONCURRENT:-2}
+      - CI_JOB_TIMEOUT=${CI_JOB_TIMEOUT:-3600}
+    volumes:
+      - ../data:/app/data
+      - ci_workspace:/var/ci-workspace
+      - ci_work:/tmp/remote-ci
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: celery -A server.celery_app worker --loglevel=info --concurrency=${CI_MAX_CONCURRENT:-2}
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A server.celery_app inspect ping || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Flower - Celery 监控面板 (可选)
+  flower:
+    build:
+      context: ..
+      dockerfile: test/Dockerfile
+    container_name: remoteCI-test-flower
+    restart: unless-stopped
+    ports:
+      - "5555:5555"
+    environment:
+      - CI_BROKER_URL=redis://redis:6379/0
+      - CI_RESULT_BACKEND=redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: celery -A server.celery_app flower --port=5555
+    profiles:
+      - monitoring
+
+volumes:
+  redis_data:
+    driver: local
+  ci_workspace:
+    driver: local
+  ci_work:
+    driver: local
