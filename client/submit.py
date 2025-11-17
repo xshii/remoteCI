@@ -182,6 +182,10 @@ class RemoteCIClient:
                     print("✓ 构建成功")
                     print("=" * 42)
                     self._show_logs(job_id)
+                    print()
+                    web_url = self._build_web_url(user_id)
+                    print(f"Web查看: {web_url}")
+                    print("=" * 42)
                     return 0
 
                 elif status in ['failed', 'error', 'timeout']:
@@ -190,6 +194,10 @@ class RemoteCIClient:
                     print("✗ 构建失败")
                     print("=" * 42)
                     self._show_logs(job_id)
+                    print()
+                    web_url = self._build_web_url(user_id)
+                    print(f"Web查看: {web_url}")
+                    print("=" * 42)
                     return 1
 
                 elif status in ['queued', 'running']:
