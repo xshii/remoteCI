@@ -175,6 +175,7 @@ def create_upload_job():
       - script: 构建脚本
       - project_name: 项目名称（可选，推荐提供以保持与rsync模式一致）
       - user_id: 可选的用户ID
+      - artifact_patterns: 产物路径模式（JSON数组字符串，可选）
     """
     # 验证参数
     if 'code' not in request.files:
@@ -187,6 +188,14 @@ def create_upload_job():
     script = request.form['script']
     user_id = request.form.get('user_id')
     project_name = request.form.get('project_name', 'default')
+
+    # 解析产物配置
+    artifact_patterns = []
+    if 'artifact_patterns' in request.form:
+        try:
+            artifact_patterns = json.loads(request.form['artifact_patterns'])
+        except json.JSONDecodeError:
+            return jsonify({'error': 'Invalid artifact_patterns JSON'}), 400
 
     # 验证文件名
     if code_file.filename == '':
@@ -209,7 +218,8 @@ def create_upload_job():
         'code_archive': upload_path,
         'script': script,
         'user_id': user_id,
-        'project_name': project_name
+        'project_name': project_name,
+        'artifact_patterns': artifact_patterns
     }
 
     # 提交任务

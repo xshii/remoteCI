@@ -155,7 +155,7 @@ class RemoteCIClient:
             return f"{self.api_url}/?user_id={quote(user_id)}"
         return self.api_url
 
-    def wait_for_result(self, job_id, max_wait=1500, interval=10, user_id=None):
+    def wait_for_result(self, job_id, max_wait=1500, interval=10, user_id=None, has_artifacts=False):
         """等待任务结果"""
         print(">>> 等待构建结果")
         print()
@@ -183,6 +183,14 @@ class RemoteCIClient:
                     print("=" * 42)
                     self._show_logs(job_id)
                     print()
+
+                    # 下载产物
+                    if has_artifacts:
+                        download_success = self._download_artifacts(job_id)
+                        if not download_success:
+                            print("⚠ 产物下载失败，可通过Web界面手动下载")
+                        print()
+
                     web_url = self._build_web_url(user_id)
                     print(f"Web查看: {web_url}")
                     print("=" * 42)
@@ -245,6 +253,68 @@ class RemoteCIClient:
 
         print("-" * 42)
 
+    def _download_artifacts(self, job_id):
+        """
+        下载并解压构建产物
+
+        Args:
+            job_id: 任务ID
+
+        Returns:
+            bool: 是否下载成功
+        """
+        print(">>> 下载构建产物")
+
+        try:
+            # 下载产物
+            response = requests.get(
+                f'{self.api_url}/api/jobs/{job_id}/artifacts',
+                stream=True
+            )
+
+            if response.status_code == 404:
+                print("⚠ 产物不存在或未生成")
+                return False
+            elif response.status_code == 410:
+                print("⚠ 产物已过期")
+                return False
+
+            response.raise_for_status()
+
+            # 保存到临时文件
+            import tempfile
+            with tempfile.NamedTemporaryFile(suffix='.tar.gz', delete=False) as tmp:
+                tmp_path = tmp.name
+                for chunk in response.iter_content(chunk_size=8192):
+                    tmp.write(chunk)
+
+            # 获取文件大小
+            size_mb = os.path.getsize(tmp_path) / (1024 * 1024)
+            print(f"✓ 产物已下载 ({size_mb:.2f}MB)")
+
+            # 解压到当前目录
+            print(">>> 解压产物到当前目录")
+            import tarfile
+            with tarfile.open(tmp_path, 'r:gz') as tar:
+                tar.extractall(path='.')
+                members = tar.getmembers()
+                print(f"✓ 已解压 {len(members)} 个文件")
+
+            # 清理临时文件
+            os.unlink(tmp_path)
+
+            return True
+
+        except requests.exceptions.RequestException as e:
+            print(f"✗ 下载失败: {e}")
+            return False
+        except tarfile.TarError as e:
+            print(f"✗ 解压失败: {e}")
+            return False
+        except Exception as e:
+            print(f"✗ 未知错误: {e}")
+            return False
+
     def _detect_project_name(self):
         """自动检测项目名"""
         # 1. 尝试从git获取仓库名
@@ -277,6 +347,8 @@ class RemoteCIClient:
     def upload_mode(self, script, upload_path='.', project_name=None, user_id=None,
                     exclude_patterns=None, config=None):
         """上传模式：打包代码并上传"""
+        artifact_patterns = []
+
         # 从配置文件读取默认值（如果有）
         if config and 'upload' in config:
             upload_config = config['upload']
@@ -306,6 +378,14 @@ class RemoteCIClient:
                     else:
                         exclude_patterns = config_exclude_str
 
+            # artifacts: 读取产物配置
+            if 'artifacts' in upload_config:
+                artifacts = upload_config['artifacts']
+                if isinstance(artifacts, list):
+                    artifact_patterns = artifacts
+                elif isinstance(artifacts, str):
+                    artifact_patterns = [artifacts]
+
         print("=" * 42)
         print("Remote CI - 上传模式")
         print("=" * 42)
@@ -313,6 +393,8 @@ class RemoteCIClient:
             print(f"项目名称: {project_name}")
         print(f"构建脚本: {script}")
         print(f"上传内容: {upload_path}")
+        if artifact_patterns:
+            print(f"产物配置: {artifact_patterns}")
         if user_id:
             print(f"用户ID: {user_id}")
         print("=" * 42)
@@ -327,12 +409,12 @@ class RemoteCIClient:
             self._create_archive(upload_path, archive_path, exclude_patterns)
 
             # 提交任务
-            job_id = self._submit_upload_job(archive_path, script, project_name, user_id)
+            job_id = self._submit_upload_job(archive_path, script, project_name, user_id, artifact_patterns)
             if not job_id:
                 return 1
 
             # 等待结果
-            return self.wait_for_result(job_id, user_id=user_id)
+            return self.wait_for_result(job_id, user_id=user_id, has_artifacts=bool(artifact_patterns))
 
         finally:
             # 清理临时文件
@@ -422,7 +504,7 @@ class RemoteCIClient:
             return None
         return tarinfo
 
-    def _submit_upload_job(self, archive_path, script, project_name=None, user_id=None):
+    def _submit_upload_job(self, archive_path, script, project_name=None, user_id=None, artifact_patterns=None):
         """提交上传任务"""
         print(">>> 步骤 2/3: 上传代码并提交任务")
 
@@ -437,6 +519,10 @@ class RemoteCIClient:
             }
             if user_id:
                 data['user_id'] = user_id
+            if artifact_patterns:
+                # 将列表转换为JSON字符串
+                import json
+                data['artifact_patterns'] = json.dumps(artifact_patterns)
 
             try:
                 response = requests.post(
