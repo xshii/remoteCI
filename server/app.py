@@ -310,9 +310,9 @@ def get_job_history():
       - page: 页码（默认1）
       - per_page: 每页数量（默认20，最大100）
       - status: 按状态过滤 (queued, running, success, failed, timeout, error)
-      - user_id: 按用户ID过滤
+      - user_id: 按用户ID过滤（支持部分匹配）
       - mode: 按模式过滤 (rsync, upload, git)
-      - project_name: 按项目名过滤
+      - project_name: 按项目名过滤（支持部分匹配）
     """
     # 获取参数
     page = request.args.get('page', 1, type=int)
@@ -328,6 +328,10 @@ def get_job_history():
     if request.args.get('project_name'):
         filters['project_name'] = request.args.get('project_name')
 
+    # 打印查询参数（调试用）
+    if filters:
+        print(f"📊 查询历史任务 - 过滤条件: {filters}")
+
     # 查询任务列表
     jobs = job_db.get_jobs(
         limit=per_page,
@@ -338,12 +342,17 @@ def get_job_history():
     # 统计总数
     total = job_db.count_jobs(filters=filters if filters else None)
 
+    # 打印查询结果（调试用）
+    if filters:
+        print(f"📊 查询结果: 找到 {len(jobs)} 条记录（总计 {total} 条）")
+
     return jsonify({
         'jobs': jobs,
         'total': total,
         'page': page,
         'per_page': per_page,
-        'pages': (total + per_page - 1) // per_page
+        'pages': (total + per_page - 1) // per_page,
+        'filters': filters  # 返回过滤条件，方便调试
     })
 
 
@@ -750,8 +759,9 @@ WEB_TEMPLATE = '''<!DOCTYPE html>
             <div class="jobs-header">
                 <h2>任务列表</h2>
                 <div class="controls">
-                    <input type="text" id="user-id-filter" class="filter-input" placeholder="按用户ID筛选..." onkeypress="if(event.key==='Enter')loadData()">
+                    <input type="text" id="user-id-filter" class="filter-input" placeholder="按用户ID筛选（支持部分匹配）..." onkeypress="if(event.key==='Enter')loadData()">
                     <button class="clear-filter-btn" onclick="clearFilter()">清除</button>
+                    <span id="filter-result" style="margin-left: 10px; color: #666; font-size: 14px;"></span>
                     <div class="auto-refresh">
                         <input type="checkbox" id="auto-refresh" checked>
                         <label for="auto-refresh">自动刷新 (5s)</label>
@@ -870,9 +880,23 @@ WEB_TEMPLATE = '''<!DOCTYPE html>
                 const data = await response.json();
 
                 const jobList = document.getElementById('job-list');
+                const filterResult = document.getElementById('filter-result');
+
+                // 显示查询结果数量
+                if (userId) {
+                    filterResult.textContent = `找到 ${data.total} 条匹配记录`;
+                    console.log('🔍 查询条件:', data.filters);
+                    console.log('🔍 查询结果:', data.total, '条');
+                } else {
+                    filterResult.textContent = `共 ${data.total} 条记录`;
+                }
 
                 if (data.jobs.length === 0) {
-                    jobList.innerHTML = '<div class="empty-state">暂无任务记录</div>';
+                    if (userId) {
+                        jobList.innerHTML = `<div class="empty-state">未找到包含 "${userId}" 的用户ID<br><small>提示：支持部分匹配，例如输入"alice"可以匹配"alice"、"alice-test"等</small></div>`;
+                    } else {
+                        jobList.innerHTML = '<div class="empty-state">暂无任务记录</div>';
+                    }
                     return;
                 }
 
@@ -899,6 +923,7 @@ WEB_TEMPLATE = '''<!DOCTYPE html>
 
         function clearFilter() {
             document.getElementById('user-id-filter').value = '';
+            document.getElementById('filter-result').textContent = '';
             loadData();
         }
 
