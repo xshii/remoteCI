@@ -328,10 +328,6 @@ def get_job_history():
     if request.args.get('project_name'):
         filters['project_name'] = request.args.get('project_name')
 
-    # 打印查询参数（调试用）
-    if filters:
-        print(f"📊 查询历史任务 - 过滤条件: {filters}")
-
     # 查询任务列表
     jobs = job_db.get_jobs(
         limit=per_page,
@@ -342,17 +338,13 @@ def get_job_history():
     # 统计总数
     total = job_db.count_jobs(filters=filters if filters else None)
 
-    # 打印查询结果（调试用）
-    if filters:
-        print(f"📊 查询结果: 找到 {len(jobs)} 条记录（总计 {total} 条）")
-
     return jsonify({
         'jobs': jobs,
         'total': total,
         'page': page,
         'per_page': per_page,
         'pages': (total + per_page - 1) // per_page,
-        'filters': filters  # 返回过滤条件，方便调试
+        'filters': filters
     })
 
 
@@ -510,34 +502,6 @@ def clear_database():
         'logs_cleaned': logs_cleaned if clean_logs else None,
         'message': f'已清空 {deleted_count} 条任务记录' + (f'，删除了 {logs_cleaned} 个日志文件' if clean_logs else '')
     })
-
-
-@app.route('/api/debug/search', methods=['GET'])
-def debug_search():
-    """
-    调试搜索功能（无需认证，仅用于调试）
-
-    Query参数:
-      - user_id: 要搜索的用户ID
-
-    返回:
-      - 调试信息，包括精确匹配、LIKE匹配的结果对比
-    """
-    user_id = request.args.get('user_id', '')
-
-    if not user_id:
-        # 返回所有不同的user_id
-        all_user_ids = job_db.get_all_user_ids()
-        return jsonify({
-            'message': '请提供user_id参数进行搜索',
-            'all_user_ids': all_user_ids,
-            'total_unique_users': len(all_user_ids)
-        })
-
-    # 执行调试搜索
-    debug_info = job_db.debug_search(user_id)
-
-    return jsonify(debug_info)
 
 
 # ============ Web界面 ============
@@ -913,8 +877,6 @@ WEB_TEMPLATE = '''<!DOCTYPE html>
                 // 显示查询结果数量
                 if (userId) {
                     filterResult.textContent = `找到 ${data.total} 条匹配记录`;
-                    console.log('🔍 查询条件:', data.filters);
-                    console.log('🔍 查询结果:', data.total, '条');
                 } else {
                     filterResult.textContent = `共 ${data.total} 条记录`;
                 }

@@ -21,6 +21,8 @@ class JobDatabase:
     def __init__(self, db_path: str):
         self.db_path = db_path
         self._local = threading.local()
+        # 确保数据库文件的父目录存在
+        Path(db_path).parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
 
     def _get_conn(self):
@@ -81,8 +83,6 @@ class JobDatabase:
 
         conn.commit()
         conn.close()
-
-        print(f"✓ 数据库初始化完成: {self.db_path}")
 
     def create_job(self, job_id: str, job_data: Dict[str, Any]) -> bool:
         """
@@ -264,17 +264,8 @@ class JobDatabase:
             query += ' ORDER BY created_at DESC LIMIT ? OFFSET ?'
             params.extend([limit, offset])
 
-            # 打印完整的SQL查询（调试用）
-            if filters:
-                print(f"🔍 SQL查询: {query}")
-                print(f"🔍 参数: {params}")
-
             cursor.execute(query, params)
             rows = cursor.fetchall()
-
-            # 打印查询结果（调试用）
-            if filters:
-                print(f"🔍 查询返回: {len(rows)} 条记录")
 
             return [dict(row) for row in rows]
 
@@ -321,17 +312,8 @@ class JobDatabase:
                 if conditions:
                     query += ' WHERE ' + ' AND '.join(conditions)
 
-            # 打印完整的SQL查询（调试用）
-            if filters:
-                print(f"🔍 COUNT SQL: {query}")
-                print(f"🔍 COUNT 参数: {params}")
-
             cursor.execute(query, params)
             count = cursor.fetchone()[0]
-
-            # 打印统计结果（调试用）
-            if filters:
-                print(f"🔍 COUNT 结果: {count}")
 
             return count
 
@@ -480,72 +462,6 @@ class JobDatabase:
         except Exception as e:
             print(f"✗ 清空任务记录失败: {e}")
             return 0
-
-    def get_all_user_ids(self) -> List[str]:
-        """
-        获取所有不同的user_id（用于调试）
-
-        Returns:
-            user_id列表
-        """
-        try:
-            conn = self._get_conn()
-            cursor = conn.cursor()
-
-            cursor.execute('SELECT DISTINCT user_id FROM ci_jobs WHERE user_id IS NOT NULL ORDER BY user_id')
-            rows = cursor.fetchall()
-
-            return [row[0] for row in rows]
-
-        except Exception as e:
-            print(f"✗ 获取user_id列表失败: {e}")
-            return []
-
-    def debug_search(self, user_id: str) -> Dict[str, Any]:
-        """
-        调试搜索功能（用于排查问题）
-
-        Args:
-            user_id: 要搜索的用户ID
-
-        Returns:
-            调试信息
-        """
-        try:
-            conn = self._get_conn()
-            cursor = conn.cursor()
-
-            # 1. 精确匹配
-            cursor.execute('SELECT COUNT(*) FROM ci_jobs WHERE user_id = ?', (user_id,))
-            exact_count = cursor.fetchone()[0]
-
-            # 2. LIKE匹配（不区分大小写）
-            cursor.execute('SELECT COUNT(*) FROM ci_jobs WHERE user_id LIKE ? COLLATE NOCASE', (f'%{user_id}%',))
-            like_count = cursor.fetchone()[0]
-
-            # 3. 获取所有user_id（用于对比）
-            cursor.execute('SELECT DISTINCT user_id FROM ci_jobs WHERE user_id IS NOT NULL LIMIT 10')
-            sample_user_ids = [row[0] for row in cursor.fetchall()]
-
-            # 4. LIKE匹配的实际记录
-            cursor.execute('SELECT job_id, user_id FROM ci_jobs WHERE user_id LIKE ? COLLATE NOCASE LIMIT 5', (f'%{user_id}%',))
-            matches = [{'job_id': row[0], 'user_id': row[1]} for row in cursor.fetchall()]
-
-            return {
-                'search_term': user_id,
-                'exact_match_count': exact_count,
-                'like_match_count': like_count,
-                'sample_user_ids': sample_user_ids,
-                'sample_matches': matches
-            }
-
-        except Exception as e:
-            print(f"✗ 调试搜索失败: {e}")
-            import traceback
-            traceback.print_exc()
-            return {
-                'error': str(e)
-            }
 
 
 # 测试代码
