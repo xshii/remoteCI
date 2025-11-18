@@ -890,14 +890,18 @@ WEB_TEMPLATE = '''<!DOCTYPE html>
 
         function formatTime(isoString) {
             try {
+                // 解析UTC时间，转换为UTC+8显示
                 const date = new Date(isoString);
+                // 转换为UTC+8时区
+                const utc8Date = new Date(date.getTime() + (8 * 60 * 60 * 1000));
+
                 // 格式化为 YYYY-MM-DD HH:mm:ss
-                const year = date.getFullYear();
-                const month = String(date.getMonth() + 1).padStart(2, '0');
-                const day = String(date.getDate()).padStart(2, '0');
-                const hours = String(date.getHours()).padStart(2, '0');
-                const minutes = String(date.getMinutes()).padStart(2, '0');
-                const seconds = String(date.getSeconds()).padStart(2, '0');
+                const year = utc8Date.getUTCFullYear();
+                const month = String(utc8Date.getUTCMonth() + 1).padStart(2, '0');
+                const day = String(utc8Date.getUTCDate()).padStart(2, '0');
+                const hours = String(utc8Date.getUTCHours()).padStart(2, '0');
+                const minutes = String(utc8Date.getUTCMinutes()).padStart(2, '0');
+                const seconds = String(utc8Date.getUTCSeconds()).padStart(2, '0');
                 return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
             } catch (e) {
                 return isoString;
