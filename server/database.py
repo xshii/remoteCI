@@ -430,6 +430,33 @@ class JobDatabase:
             print(f"✗ 清理旧任务记录失败: {e}")
             return 0
 
+    def clear_all_jobs(self) -> int:
+        """
+        清空所有任务记录（危险操作！）
+
+        Returns:
+            删除的记录数量
+        """
+        try:
+            conn = self._get_conn()
+            cursor = conn.cursor()
+
+            # 获取当前记录数
+            cursor.execute('SELECT COUNT(*) FROM ci_jobs')
+            total_count = cursor.fetchone()[0]
+
+            # 清空所有记录
+            cursor.execute('DELETE FROM ci_jobs')
+
+            conn.commit()
+
+            print(f"✓ 已清空所有任务记录（共 {total_count} 条）")
+            return total_count
+
+        except Exception as e:
+            print(f"✗ 清空任务记录失败: {e}")
+            return 0
+
 
 # 测试代码
 if __name__ == '__main__':

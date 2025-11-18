@@ -458,6 +458,51 @@ def health_check():
         return jsonify({'status': 'unhealthy', 'error': str(e)}), 503
 
 
+@app.route('/api/admin/clear-database', methods=['POST', 'DELETE'])
+@require_auth
+def clear_database():
+    """
+    清空所有任务记录（危险操作！需要Token认证）
+
+    Query参数:
+      - clean_logs: 是否同时清理日志文件（默认: false）
+
+    返回:
+      - deleted_count: 删除的记录数量
+      - logs_cleaned: 是否清理了日志文件
+    """
+    # 清空数据库
+    deleted_count = job_db.clear_all_jobs()
+
+    # 可选：清理日志文件
+    clean_logs = request.args.get('clean_logs', 'false').lower() in ['true', '1', 'yes']
+    logs_cleaned = 0
+
+    if clean_logs:
+        try:
+            import glob
+            log_pattern = f"{DATA_DIR}/logs/*.log"
+            log_files = glob.glob(log_pattern)
+
+            for log_file in log_files:
+                try:
+                    os.remove(log_file)
+                    logs_cleaned += 1
+                except Exception as e:
+                    print(f"删除日志文件失败 {log_file}: {e}")
+
+            print(f"✓ 清理了 {logs_cleaned} 个日志文件")
+        except Exception as e:
+            print(f"✗ 清理日志文件失败: {e}")
+
+    return jsonify({
+        'success': True,
+        'deleted_count': deleted_count,
+        'logs_cleaned': logs_cleaned if clean_logs else None,
+        'message': f'已清空 {deleted_count} 条任务记录' + (f'，删除了 {logs_cleaned} 个日志文件' if clean_logs else '')
+    })
+
+
 # ============ Web界面 ============
 
 @app.route('/')
