@@ -9,12 +9,15 @@ Celery任务定义
 import os
 import subprocess
 import shutil
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from celery import Task
 from server.celery_app import celery_app
 from server.config import WORK_DIR, DATA_DIR, JOB_TIMEOUT
 from server.database import JobDatabase
+
+# 定义UTC+8时区
+UTC8 = timezone(timedelta(hours=8))
 
 # 初始化数据库连接
 job_db = JobDatabase(f"{DATA_DIR}/jobs.db")
@@ -28,7 +31,7 @@ class BuildTask(Task):
         log_file = f"{DATA_DIR}/logs/{task_id}.log"
         with open(log_file, 'a') as f:
             f.write(f"\n\n===== 任务异常终止 =====\n")
-            f.write(f"时间: {datetime.now().isoformat()}\n")
+            f.write(f"时间: {datetime.now(UTC8).isoformat()}\n")
             f.write(f"错误: {str(exc)}\n")
             f.write(f"详情:\n{einfo}\n")
 
@@ -67,11 +70,11 @@ def execute_build(self, job_data):
     log_file = f"{DATA_DIR}/logs/{task_id}.log"
     work_dir = f"{WORK_DIR}/{task_id}"
 
-    start_time = datetime.now()
+    start_time = datetime.now(UTC8)
 
     def log(message):
         """写日志"""
-        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        timestamp = datetime.now(UTC8).strftime('%Y-%m-%d %H:%M:%S')
         with open(log_file, 'a') as f:
             f.write(f"[{timestamp}] {message}\n")
             f.flush()
@@ -208,7 +211,7 @@ def execute_build(self, job_data):
         # 步骤3: 保存结果
         update_progress('PROGRESS', {'step': 'finishing', 'percent': 90})
 
-        end_time = datetime.now()
+        end_time = datetime.now(UTC8)
         duration = (end_time - start_time).total_seconds()
 
         log(f"\n>>> 步骤 3/3: 完成")
@@ -247,7 +250,7 @@ def execute_build(self, job_data):
         result = {
             'status': 'timeout',
             'exit_code': -1,
-            'duration': (datetime.now() - start_time).total_seconds(),
+            'duration': (datetime.now(UTC8) - start_time).total_seconds(),
             'error': 'Task timeout'
         }
 
@@ -264,7 +267,7 @@ def execute_build(self, job_data):
         result = {
             'status': 'error',
             'exit_code': -2,
-            'duration': (datetime.now() - start_time).total_seconds(),
+            'duration': (datetime.now(UTC8) - start_time).total_seconds(),
             'error': str(e)
         }
 

@@ -5,10 +5,13 @@ SQLite数据库模块 - 任务历史记录
 
 import sqlite3
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional, Dict, List, Any
 import threading
+
+# 定义UTC+8时区
+UTC8 = timezone(timedelta(hours=8))
 
 
 class JobDatabase:
@@ -107,7 +110,7 @@ class JobDatabase:
                 job_data.get('script', ''),
                 job_data.get('user_id'),
                 job_data.get('project_name', job_data.get('workspace', '').split('/')[-1] if job_data.get('workspace') else None),
-                datetime.now().isoformat(),
+                datetime.now(UTC8).isoformat(),
                 job_data.get('log_file', ''),
                 job_data.get('workspace'),
                 job_data.get('repo'),
@@ -140,7 +143,7 @@ class JobDatabase:
                 UPDATE ci_jobs
                 SET status = 'running', started_at = ?
                 WHERE job_id = ?
-            ''', (datetime.now().isoformat(), job_id))
+            ''', (datetime.now(UTC8).isoformat(), job_id))
 
             conn.commit()
             return True
@@ -177,7 +180,7 @@ class JobDatabase:
                 WHERE job_id = ?
             ''', (
                 status,
-                datetime.now().isoformat(),
+                datetime.now(UTC8).isoformat(),
                 result.get('duration'),
                 result.get('exit_code'),
                 result.get('error'),
@@ -242,14 +245,16 @@ class JobDatabase:
                     conditions.append('status = ?')
                     params.append(filters['status'])
                 if filters.get('user_id'):
-                    conditions.append('user_id = ?')
-                    params.append(filters['user_id'])
+                    # 支持部分匹配
+                    conditions.append('user_id LIKE ?')
+                    params.append(f"%{filters['user_id']}%")
                 if filters.get('mode'):
                     conditions.append('mode = ?')
                     params.append(filters['mode'])
                 if filters.get('project_name'):
-                    conditions.append('project_name = ?')
-                    params.append(filters['project_name'])
+                    # 支持部分匹配
+                    conditions.append('project_name LIKE ?')
+                    params.append(f"%{filters['project_name']}%")
 
                 if conditions:
                     query += ' WHERE ' + ' AND '.join(conditions)
@@ -290,14 +295,16 @@ class JobDatabase:
                     conditions.append('status = ?')
                     params.append(filters['status'])
                 if filters.get('user_id'):
-                    conditions.append('user_id = ?')
-                    params.append(filters['user_id'])
+                    # 支持部分匹配
+                    conditions.append('user_id LIKE ?')
+                    params.append(f"%{filters['user_id']}%")
                 if filters.get('mode'):
                     conditions.append('mode = ?')
                     params.append(filters['mode'])
                 if filters.get('project_name'):
-                    conditions.append('project_name = ?')
-                    params.append(filters['project_name'])
+                    # 支持部分匹配
+                    conditions.append('project_name LIKE ?')
+                    params.append(f"%{filters['project_name']}%")
 
                 if conditions:
                     query += ' WHERE ' + ' AND '.join(conditions)
@@ -323,7 +330,7 @@ class JobDatabase:
             conn = self._get_conn()
             cursor = conn.cursor()
 
-            cutoff = (datetime.now() - timedelta(days=days)).isoformat()
+            cutoff = (datetime.now(UTC8) - timedelta(days=days)).isoformat()
 
             # 总体统计
             cursor.execute('''
@@ -408,7 +415,7 @@ class JobDatabase:
             conn = self._get_conn()
             cursor = conn.cursor()
 
-            cutoff = (datetime.now() - timedelta(days=days)).isoformat()
+            cutoff = (datetime.now(UTC8) - timedelta(days=days)).isoformat()
 
             cursor.execute('DELETE FROM ci_jobs WHERE created_at < ?', (cutoff,))
             deleted_count = cursor.rowcount
