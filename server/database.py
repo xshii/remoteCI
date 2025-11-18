@@ -10,7 +10,8 @@ from pathlib import Path
 from typing import Optional, Dict, List, Any
 import threading
 
-# 定义UTC+8时区
+# 定义时区
+UTC = timezone.utc
 UTC8 = timezone(timedelta(hours=8))
 
 
@@ -110,7 +111,7 @@ class JobDatabase:
                 job_data.get('script', ''),
                 job_data.get('user_id'),
                 job_data.get('project_name', job_data.get('workspace', '').split('/')[-1] if job_data.get('workspace') else None),
-                datetime.now(UTC8).isoformat(),
+                datetime.now(UTC).replace(tzinfo=None).isoformat() + 'Z',
                 job_data.get('log_file', ''),
                 job_data.get('workspace'),
                 job_data.get('repo'),
@@ -143,7 +144,7 @@ class JobDatabase:
                 UPDATE ci_jobs
                 SET status = 'running', started_at = ?
                 WHERE job_id = ?
-            ''', (datetime.now(UTC8).isoformat(), job_id))
+            ''', (datetime.now(UTC).replace(tzinfo=None).isoformat() + 'Z', job_id))
 
             conn.commit()
             return True
@@ -180,7 +181,7 @@ class JobDatabase:
                 WHERE job_id = ?
             ''', (
                 status,
-                datetime.now(UTC8).isoformat(),
+                datetime.now(UTC).replace(tzinfo=None).isoformat() + 'Z',
                 result.get('duration'),
                 result.get('exit_code'),
                 result.get('error'),
@@ -330,7 +331,7 @@ class JobDatabase:
             conn = self._get_conn()
             cursor = conn.cursor()
 
-            cutoff = (datetime.now(UTC8) - timedelta(days=days)).isoformat()
+            cutoff = (datetime.now(UTC) - timedelta(days=days)).replace(tzinfo=None).isoformat()
 
             # 总体统计
             cursor.execute('''
@@ -415,7 +416,7 @@ class JobDatabase:
             conn = self._get_conn()
             cursor = conn.cursor()
 
-            cutoff = (datetime.now(UTC8) - timedelta(days=days)).isoformat()
+            cutoff = (datetime.now(UTC) - timedelta(days=days)).replace(tzinfo=None).isoformat()
 
             cursor.execute('DELETE FROM ci_jobs WHERE created_at < ?', (cutoff,))
             deleted_count = cursor.rowcount

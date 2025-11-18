@@ -16,7 +16,8 @@ from server.celery_app import celery_app
 from server.config import WORK_DIR, DATA_DIR, JOB_TIMEOUT
 from server.database import JobDatabase
 
-# 定义UTC+8时区
+# 定义时区
+UTC = timezone.utc
 UTC8 = timezone(timedelta(hours=8))
 
 # 初始化数据库连接
