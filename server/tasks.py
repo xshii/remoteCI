@@ -15,6 +15,8 @@ from celery import Task
 from server.celery_app import celery_app
 from server.config import WORK_DIR, DATA_DIR, JOB_TIMEOUT
 from server.database import JobDatabase
+from server.artifact_handler import ArtifactHandler
+from server.quota_manager import QuotaManager
 
 # 定义时区
 UTC = timezone.utc
@@ -22,6 +24,12 @@ UTC8 = timezone(timedelta(hours=8))
 
 # 初始化数据库连接
 job_db = JobDatabase(f"{DATA_DIR}/jobs.db")
+
+# 初始化产物处理器
+artifact_handler = ArtifactHandler(f"{DATA_DIR}/artifacts")
+
+# 初始化配额管理器
+quota_manager = QuotaManager(job_db)
 
 
 class BuildTask(Task):
@@ -209,13 +217,43 @@ def execute_build(self, job_data):
         log("")
         log("-" * 70)
 
-        # 步骤3: 保存结果
+        # 步骤3: 打包产物（如果构建成功）
+        update_progress('PROGRESS', {'step': 'packing_artifacts', 'percent': 80})
+
+        artifacts_path = None
+        artifacts_size = 0
+
+        if build_result.returncode == 0:
+            # 获取产物配置
+            artifact_patterns = job_data.get('artifact_patterns', [])
+
+            if artifact_patterns:
+                log(f"\n>>> 步骤 3/4: 打包构建产物")
+                log(f"产物模式: {artifact_patterns}")
+                log("-" * 70)
+
+                artifacts_path = artifact_handler.pack_artifacts(
+                    work_dir=repo_dir,
+                    artifact_patterns=artifact_patterns,
+                    job_id=task_id
+                )
+
+                if artifacts_path:
+                    artifacts_size = artifact_handler.get_artifact_size(artifacts_path)
+                    log(f"✓ 产物已保存: {artifacts_path} ({artifacts_size} 字节)\n")
+
+                    # 清理原始产物文件
+                    log("清理原始产物文件...")
+                    artifact_handler.cleanup_source_artifacts(repo_dir, artifact_patterns)
+                    log("✓ 原始产物文件已清理\n")
+
+        # 步骤4: 保存结果
         update_progress('PROGRESS', {'step': 'finishing', 'percent': 90})
 
         end_time = datetime.now(UTC8)
         duration = (end_time - start_time).total_seconds()
 
-        log(f"\n>>> 步骤 3/3: 完成")
+        log(f"\n>>> 步骤 {'4' if build_result.returncode == 0 and artifacts_path else '3'}/{'4' if build_result.returncode == 0 and artifacts_path else '3'}: 完成")
         log(f"结束时间: {end_time.isoformat()}")
         log(f"总耗时: {duration:.2f} 秒")
         log(f"退出码: {build_result.returncode}")
@@ -239,6 +277,36 @@ def execute_build(self, job_data):
 
         # 更新数据库状态为完成
         job_db.update_job_finished(task_id, status, result)
+
+        # 更新文件大小信息
+        log_size = 0
+        if os.path.exists(log_file):
+            log_size = os.path.getsize(log_file)
+
+        code_archive_size = 0
+        code_archive_path = None
+        if mode == 'upload' and 'code_archive' in job_data:
+            code_archive_path = job_data['code_archive']
+            if os.path.exists(code_archive_path):
+                code_archive_size = os.path.getsize(code_archive_path)
+
+        job_db.update_job_file_sizes(
+            job_id=task_id,
+            log_size=log_size,
+            artifacts_size=artifacts_size,
+            artifacts_path=artifacts_path,
+            code_archive_size=code_archive_size,
+            code_archive_path=code_archive_path
+        )
+
+        # 检查配额并清理
+        user_id = job_data.get('user_id')
+        log("\n检查磁盘配额...")
+        need_cleanup, cleaned_count = quota_manager.check_and_cleanup(user_id)
+        if need_cleanup:
+            log(f"✓ 配额清理完成，清理了 {cleaned_count} 个任务")
+        else:
+            log("✓ 配额正常")
 
         return result
 

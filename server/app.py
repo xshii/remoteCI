@@ -20,12 +20,16 @@ from server.config import (
 from server.celery_app import celery_app
 from server.tasks import execute_build
 from server.database import JobDatabase
+from server.quota_manager import QuotaManager
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = MAX_UPLOAD_SIZE
 
 # 初始化数据库
 job_db = JobDatabase(f"{DATA_DIR}/jobs.db")
+
+# 初始化配额管理器
+quota_manager = QuotaManager(job_db)
 
 
 # ============ 认证装饰器 ============
@@ -502,6 +506,177 @@ def clear_database():
         'logs_cleaned': logs_cleaned if clean_logs else None,
         'message': f'已清空 {deleted_count} 条任务记录' + (f'，删除了 {logs_cleaned} 个日志文件' if clean_logs else '')
     })
+
+
+# ============ 产物下载 ============
+
+@app.route('/api/jobs/<job_id>/artifacts', methods=['GET'])
+def download_artifacts(job_id):
+    """
+    下载任务产物（免Token认证）
+
+    Returns:
+        产物tar.gz文件，如果不存在返回404
+    """
+    job = job_db.get_job(job_id)
+
+    if not job:
+        return jsonify({'error': 'Job not found'}), 404
+
+    # 检查是否已过期
+    if job.get('is_expired'):
+        return jsonify({'error': 'Artifacts expired', 'message': '产物已过期'}), 410
+
+    # 检查产物是否存在
+    artifacts_path = job.get('artifacts_path')
+    if not artifacts_path or not os.path.exists(artifacts_path):
+        return jsonify({'error': 'Artifacts not found', 'message': '产物不存在或未生成'}), 404
+
+    # 返回文件
+    try:
+        return send_file(
+            artifacts_path,
+            as_attachment=True,
+            download_name=f"{job_id}-artifacts.tar.gz",
+            mimetype='application/gzip'
+        )
+    except Exception as e:
+        return jsonify({'error': 'Download failed', 'message': str(e)}), 500
+
+
+# ============ 配额管理 ============
+
+@app.route('/api/admin/quota', methods=['GET'])
+def get_quota():
+    """
+    获取配额信息（免Token认证）
+
+    Returns:
+        配额统计信息
+    """
+    try:
+        quota_info = quota_manager.get_quota_info()
+        return jsonify(quota_info)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ============ 特殊用户管理 ============
+
+@app.route('/api/admin/special-users', methods=['GET'])
+def list_special_users():
+    """
+    获取特殊用户列表（免Token认证）
+
+    Returns:
+        特殊用户列表
+    """
+    try:
+        users = job_db.get_all_special_users()
+
+        # 添加使用量信息
+        for user in users:
+            user['used_bytes'] = job_db.calculate_disk_usage(user['user_id'])
+            user['quota_gb'] = user['quota_bytes'] / (1024 * 1024 * 1024)
+            user['used_gb'] = user['used_bytes'] / (1024 * 1024 * 1024)
+            user['usage_percent'] = round(user['used_bytes'] / user['quota_bytes'] * 100, 2) if user['quota_bytes'] > 0 else 0
+
+        return jsonify({'special_users': users})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/admin/special-users', methods=['POST'])
+@require_auth
+def add_special_user():
+    """
+    添加特殊用户（需要Token认证）
+
+    请求体: {
+        "user_id": "alice",
+        "quota_gb": 50
+    }
+    """
+    data = request.json
+
+    if not data or 'user_id' not in data or 'quota_gb' not in data:
+        return jsonify({'error': 'Missing required fields: user_id, quota_gb'}), 400
+
+    user_id = data['user_id']
+    quota_gb = float(data['quota_gb'])
+
+    if quota_gb <= 0:
+        return jsonify({'error': 'quota_gb must be positive'}), 400
+
+    try:
+        success = job_db.add_special_user(user_id, quota_gb)
+
+        if success:
+            return jsonify({
+                'success': True,
+                'message': f'已添加特殊用户 {user_id} (配额: {quota_gb}GB)'
+            })
+        else:
+            return jsonify({'error': 'Failed to add special user'}), 500
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/admin/special-users/<user_id>', methods=['PUT'])
+@require_auth
+def update_special_user(user_id):
+    """
+    更新特殊用户配额（需要Token认证）
+
+    请求体: {
+        "quota_gb": 100
+    }
+    """
+    data = request.json
+
+    if not data or 'quota_gb' not in data:
+        return jsonify({'error': 'Missing required field: quota_gb'}), 400
+
+    quota_gb = float(data['quota_gb'])
+
+    if quota_gb <= 0:
+        return jsonify({'error': 'quota_gb must be positive'}), 400
+
+    try:
+        success = job_db.update_special_user_quota(user_id, quota_gb)
+
+        if success:
+            return jsonify({
+                'success': True,
+                'message': f'已更新用户 {user_id} 配额为 {quota_gb}GB'
+            })
+        else:
+            return jsonify({'error': 'User not found or update failed'}), 404
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/admin/special-users/<user_id>', methods=['DELETE'])
+@require_auth
+def delete_special_user(user_id):
+    """
+    删除特殊用户（需要Token认证）
+    """
+    try:
+        success = job_db.delete_special_user(user_id)
+
+        if success:
+            return jsonify({
+                'success': True,
+                'message': f'已删除特殊用户 {user_id}'
+            })
+        else:
+            return jsonify({'error': 'User not found or delete failed'}), 404
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 
 # ============ Web界面 ============

@@ -61,17 +61,47 @@ class JobDatabase:
                 commit_hash TEXT,
 
                 log_file TEXT,
+                log_size INTEGER DEFAULT 0,
+
+                artifacts_path TEXT,
+                artifacts_size INTEGER DEFAULT 0,
+
+                code_archive_path TEXT,
+                code_archive_size INTEGER DEFAULT 0,
+
+                is_expired INTEGER DEFAULT 0,
+
                 metadata TEXT
             )
         ''')
 
-        # 数据库迁移：为已存在的表添加user_id字段
-        try:
-            cursor.execute("SELECT user_id FROM ci_jobs LIMIT 1")
-        except sqlite3.OperationalError:
-            # user_id字段不存在，添加它
-            cursor.execute("ALTER TABLE ci_jobs ADD COLUMN user_id TEXT")
-            print("✓ 数据库迁移: 添加user_id字段")
+        # 创建特殊用户表
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS special_users (
+                user_id TEXT PRIMARY KEY,
+                quota_bytes INTEGER NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+        ''')
+
+        # 数据库迁移：添加新字段
+        migrations = [
+            ('user_id', 'ALTER TABLE ci_jobs ADD COLUMN user_id TEXT'),
+            ('log_size', 'ALTER TABLE ci_jobs ADD COLUMN log_size INTEGER DEFAULT 0'),
+            ('artifacts_path', 'ALTER TABLE ci_jobs ADD COLUMN artifacts_path TEXT'),
+            ('artifacts_size', 'ALTER TABLE ci_jobs ADD COLUMN artifacts_size INTEGER DEFAULT 0'),
+            ('code_archive_path', 'ALTER TABLE ci_jobs ADD COLUMN code_archive_path TEXT'),
+            ('code_archive_size', 'ALTER TABLE ci_jobs ADD COLUMN code_archive_size INTEGER DEFAULT 0'),
+            ('is_expired', 'ALTER TABLE ci_jobs ADD COLUMN is_expired INTEGER DEFAULT 0'),
+        ]
+
+        for field_name, migration_sql in migrations:
+            try:
+                cursor.execute(f"SELECT {field_name} FROM ci_jobs LIMIT 1")
+            except sqlite3.OperationalError:
+                cursor.execute(migration_sql)
+                print(f"✓ 数据库迁移: 添加{field_name}字段")
 
         # 创建索引
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_jobs_status ON ci_jobs(status)')
@@ -80,6 +110,7 @@ class JobDatabase:
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_jobs_mode ON ci_jobs(mode)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_jobs_finished_at ON ci_jobs(finished_at DESC)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_jobs_project_name ON ci_jobs(project_name)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_jobs_is_expired ON ci_jobs(is_expired)')
 
         conn.commit()
         conn.close()
@@ -462,6 +493,295 @@ class JobDatabase:
         except Exception as e:
             print(f"✗ 清空任务记录失败: {e}")
             return 0
+
+    # ========== 配额管理相关方法 ==========
+
+    def update_job_file_sizes(self, job_id: str,
+                               log_size: int = None,
+                               artifacts_size: int = None,
+                               artifacts_path: str = None,
+                               code_archive_size: int = None,
+                               code_archive_path: str = None) -> bool:
+        """
+        更新任务的文件大小信息
+
+        Args:
+            job_id: 任务ID
+            log_size: 日志文件大小
+            artifacts_size: 产物文件大小
+            artifacts_path: 产物文件路径
+            code_archive_size: 代码包大小
+            code_archive_path: 代码包路径
+
+        Returns:
+            bool: 是否更新成功
+        """
+        try:
+            conn = self._get_conn()
+            cursor = conn.cursor()
+
+            updates = []
+            params = []
+
+            if log_size is not None:
+                updates.append('log_size = ?')
+                params.append(log_size)
+            if artifacts_size is not None:
+                updates.append('artifacts_size = ?')
+                params.append(artifacts_size)
+            if artifacts_path is not None:
+                updates.append('artifacts_path = ?')
+                params.append(artifacts_path)
+            if code_archive_size is not None:
+                updates.append('code_archive_size = ?')
+                params.append(code_archive_size)
+            if code_archive_path is not None:
+                updates.append('code_archive_path = ?')
+                params.append(code_archive_path)
+
+            if not updates:
+                return True
+
+            params.append(job_id)
+            query = f"UPDATE ci_jobs SET {', '.join(updates)} WHERE job_id = ?"
+            cursor.execute(query, params)
+
+            conn.commit()
+            return True
+
+        except Exception as e:
+            print(f"✗ 更新任务文件大小失败: {e}")
+            return False
+
+    def mark_job_expired(self, job_id: str) -> bool:
+        """
+        标记任务为已过期
+
+        Args:
+            job_id: 任务ID
+
+        Returns:
+            bool: 是否标记成功
+        """
+        try:
+            conn = self._get_conn()
+            cursor = conn.cursor()
+
+            cursor.execute('UPDATE ci_jobs SET is_expired = 1 WHERE job_id = ?', (job_id,))
+            conn.commit()
+            return True
+
+        except Exception as e:
+            print(f"✗ 标记任务过期失败: {e}")
+            return False
+
+    def calculate_disk_usage(self, user_id: str = None) -> int:
+        """
+        计算磁盘使用量（字节）
+
+        Args:
+            user_id: 用户ID，None表示计算所有用户
+
+        Returns:
+            磁盘使用量（字节）
+        """
+        try:
+            conn = self._get_conn()
+            cursor = conn.cursor()
+
+            if user_id:
+                cursor.execute('''
+                    SELECT
+                        COALESCE(SUM(log_size), 0) +
+                        COALESCE(SUM(artifacts_size), 0) +
+                        COALESCE(SUM(code_archive_size), 0)
+                    FROM ci_jobs
+                    WHERE user_id = ? AND is_expired = 0
+                ''', (user_id,))
+            else:
+                cursor.execute('''
+                    SELECT
+                        COALESCE(SUM(log_size), 0) +
+                        COALESCE(SUM(artifacts_size), 0) +
+                        COALESCE(SUM(code_archive_size), 0)
+                    FROM ci_jobs
+                    WHERE is_expired = 0
+                ''')
+
+            result = cursor.fetchone()[0]
+            return result if result else 0
+
+        except Exception as e:
+            print(f"✗ 计算磁盘使用量失败: {e}")
+            return 0
+
+    def get_oldest_jobs(self, user_id: str = None, limit: int = 10) -> List[Dict[str, Any]]:
+        """
+        获取最老的任务（按created_at排序）
+
+        Args:
+            user_id: 用户ID，None表示所有用户
+            limit: 返回数量
+
+        Returns:
+            任务列表
+        """
+        try:
+            conn = self._get_conn()
+            cursor = conn.cursor()
+
+            if user_id:
+                cursor.execute('''
+                    SELECT * FROM ci_jobs
+                    WHERE user_id = ? AND is_expired = 0
+                    ORDER BY created_at ASC
+                    LIMIT ?
+                ''', (user_id, limit))
+            else:
+                cursor.execute('''
+                    SELECT * FROM ci_jobs
+                    WHERE is_expired = 0
+                    ORDER BY created_at ASC
+                    LIMIT ?
+                ''', (limit,))
+
+            rows = cursor.fetchall()
+            return [dict(row) for row in rows]
+
+        except Exception as e:
+            print(f"✗ 获取最老任务失败: {e}")
+            return []
+
+    # ========== 特殊用户管理方法 ==========
+
+    def add_special_user(self, user_id: str, quota_gb: float) -> bool:
+        """
+        添加特殊用户
+
+        Args:
+            user_id: 用户ID
+            quota_gb: 配额（GB）
+
+        Returns:
+            bool: 是否添加成功
+        """
+        try:
+            conn = self._get_conn()
+            cursor = conn.cursor()
+
+            quota_bytes = int(quota_gb * 1024 * 1024 * 1024)
+            now = datetime.now(UTC).replace(tzinfo=None).isoformat() + 'Z'
+
+            cursor.execute('''
+                INSERT OR REPLACE INTO special_users (user_id, quota_bytes, created_at, updated_at)
+                VALUES (?, ?, ?, ?)
+            ''', (user_id, quota_bytes, now, now))
+
+            conn.commit()
+            return True
+
+        except Exception as e:
+            print(f"✗ 添加特殊用户失败: {e}")
+            return False
+
+    def get_special_user(self, user_id: str) -> Optional[Dict[str, Any]]:
+        """
+        获取特殊用户信息
+
+        Args:
+            user_id: 用户ID
+
+        Returns:
+            用户信息字典，如果不存在返回None
+        """
+        try:
+            conn = self._get_conn()
+            cursor = conn.cursor()
+
+            cursor.execute('SELECT * FROM special_users WHERE user_id = ?', (user_id,))
+            row = cursor.fetchone()
+
+            if row:
+                return dict(row)
+            return None
+
+        except Exception as e:
+            print(f"✗ 获取特殊用户信息失败: {e}")
+            return None
+
+    def get_all_special_users(self) -> List[Dict[str, Any]]:
+        """
+        获取所有特殊用户
+
+        Returns:
+            特殊用户列表
+        """
+        try:
+            conn = self._get_conn()
+            cursor = conn.cursor()
+
+            cursor.execute('SELECT * FROM special_users ORDER BY created_at DESC')
+            rows = cursor.fetchall()
+
+            return [dict(row) for row in rows]
+
+        except Exception as e:
+            print(f"✗ 获取特殊用户列表失败: {e}")
+            return []
+
+    def update_special_user_quota(self, user_id: str, quota_gb: float) -> bool:
+        """
+        更新特殊用户配额
+
+        Args:
+            user_id: 用户ID
+            quota_gb: 新配额（GB）
+
+        Returns:
+            bool: 是否更新成功
+        """
+        try:
+            conn = self._get_conn()
+            cursor = conn.cursor()
+
+            quota_bytes = int(quota_gb * 1024 * 1024 * 1024)
+            now = datetime.now(UTC).replace(tzinfo=None).isoformat() + 'Z'
+
+            cursor.execute('''
+                UPDATE special_users
+                SET quota_bytes = ?, updated_at = ?
+                WHERE user_id = ?
+            ''', (quota_bytes, now, user_id))
+
+            conn.commit()
+            return cursor.rowcount > 0
+
+        except Exception as e:
+            print(f"✗ 更新特殊用户配额失败: {e}")
+            return False
+
+    def delete_special_user(self, user_id: str) -> bool:
+        """
+        删除特殊用户
+
+        Args:
+            user_id: 用户ID
+
+        Returns:
+            bool: 是否删除成功
+        """
+        try:
+            conn = self._get_conn()
+            cursor = conn.cursor()
+
+            cursor.execute('DELETE FROM special_users WHERE user_id = ?', (user_id,))
+            conn.commit()
+
+            return cursor.rowcount > 0
+
+        except Exception as e:
+            print(f"✗ 删除特殊用户失败: {e}")
+            return False
 
 
 # 测试代码
