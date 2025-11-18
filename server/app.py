@@ -746,6 +746,22 @@ WEB_TEMPLATE = '''<!DOCTYPE html>
     <div class="container">
         <h1>🚀 Remote CI Dashboard</h1>
 
+        <div class="jobs-container">
+            <div class="jobs-header">
+                <h2>任务列表</h2>
+                <div class="controls">
+                    <input type="text" id="user-id-filter" class="filter-input" placeholder="按用户ID筛选..." onkeypress="if(event.key==='Enter')loadData()">
+                    <button class="clear-filter-btn" onclick="clearFilter()">清除</button>
+                    <div class="auto-refresh">
+                        <input type="checkbox" id="auto-refresh" checked>
+                        <label for="auto-refresh">自动刷新 (5s)</label>
+                    </div>
+                    <button class="refresh-btn" onclick="loadData()">刷新</button>
+                </div>
+            </div>
+            <div class="job-list" id="job-list"></div>
+        </div>
+
         <div class="stats">
             <div class="stat-card">
                 <h3>执行中</h3>
@@ -786,22 +802,6 @@ WEB_TEMPLATE = '''<!DOCTYPE html>
                 远程CI直接克隆Git仓库<br>
                 <code>curl -X POST .../api/jobs/git -d '{"repo":"https://...","branch":"main","script":"npm test"}'</code>
             </div>
-        </div>
-
-        <div class="jobs-container">
-            <div class="jobs-header">
-                <h2>任务列表</h2>
-                <div class="controls">
-                    <input type="text" id="user-id-filter" class="filter-input" placeholder="按用户ID筛选..." onkeypress="if(event.key==='Enter')loadData()">
-                    <button class="clear-filter-btn" onclick="clearFilter()">清除</button>
-                    <div class="auto-refresh">
-                        <input type="checkbox" id="auto-refresh" checked>
-                        <label for="auto-refresh">自动刷新 (5s)</label>
-                    </div>
-                    <button class="refresh-btn" onclick="loadData()">刷新</button>
-                </div>
-            </div>
-            <div class="job-list" id="job-list"></div>
         </div>
     </div>
 
