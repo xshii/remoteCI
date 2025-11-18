@@ -512,6 +512,34 @@ def clear_database():
     })
 
 
+@app.route('/api/debug/search', methods=['GET'])
+def debug_search():
+    """
+    调试搜索功能（无需认证，仅用于调试）
+
+    Query参数:
+      - user_id: 要搜索的用户ID
+
+    返回:
+      - 调试信息，包括精确匹配、LIKE匹配的结果对比
+    """
+    user_id = request.args.get('user_id', '')
+
+    if not user_id:
+        # 返回所有不同的user_id
+        all_user_ids = job_db.get_all_user_ids()
+        return jsonify({
+            'message': '请提供user_id参数进行搜索',
+            'all_user_ids': all_user_ids,
+            'total_unique_users': len(all_user_ids)
+        })
+
+    # 执行调试搜索
+    debug_info = job_db.debug_search(user_id)
+
+    return jsonify(debug_info)
+
+
 # ============ Web界面 ============
 
 @app.route('/')
