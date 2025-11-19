@@ -289,8 +289,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // 初始加载数据
     loadQuotaData();
 
-    // 设置自动刷新（每 30 秒）
+    // 设置自动刷新（每 5 秒）
     setInterval(() => {
         loadQuotaData();
-    }, 30000);
+    }, 5000);
 });

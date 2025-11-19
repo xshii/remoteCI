@@ -801,6 +801,19 @@ WEB_TEMPLATE = '''<!DOCTYPE html>
 
         .job-info { font-size: 14px; color: #666; }
 
+        .btn-primary {
+            padding: 8px 16px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            white-space: nowrap;
+            align-self: center;
+        }
+        .btn-primary:hover { background: #0056b3; }
+
         .modal {
             display: none;
             position: fixed;
