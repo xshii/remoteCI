@@ -20,12 +20,17 @@ from server.config import (
 from server.celery_app import celery_app
 from server.tasks import execute_build
 from server.database import JobDatabase
+from server.quota_manager import QuotaManager
 
-app = Flask(__name__)
+# 配置静态文件目录
+app = Flask(__name__, static_folder='static', static_url_path='/static')
 app.config['MAX_CONTENT_LENGTH'] = MAX_UPLOAD_SIZE
 
 # 初始化数据库
 job_db = JobDatabase(f"{DATA_DIR}/jobs.db")
+
+# 初始化配额管理器
+quota_manager = QuotaManager(job_db)
 
 
 # ============ 认证装饰器 ============
@@ -171,6 +176,7 @@ def create_upload_job():
       - script: 构建脚本
       - project_name: 项目名称（可选，推荐提供以保持与rsync模式一致）
       - user_id: 可选的用户ID
+      - artifact_patterns: 产物路径模式（JSON数组字符串，可选）
     """
     # 验证参数
     if 'code' not in request.files:
@@ -183,6 +189,14 @@ def create_upload_job():
     script = request.form['script']
     user_id = request.form.get('user_id')
     project_name = request.form.get('project_name', 'default')
+
+    # 解析产物配置
+    artifact_patterns = []
+    if 'artifact_patterns' in request.form:
+        try:
+            artifact_patterns = json.loads(request.form['artifact_patterns'])
+        except json.JSONDecodeError:
+            return jsonify({'error': 'Invalid artifact_patterns JSON'}), 400
 
     # 验证文件名
     if code_file.filename == '':
@@ -205,7 +219,8 @@ def create_upload_job():
         'code_archive': upload_path,
         'script': script,
         'user_id': user_id,
-        'project_name': project_name
+        'project_name': project_name,
+        'artifact_patterns': artifact_patterns
     }
 
     # 提交任务
@@ -504,6 +519,177 @@ def clear_database():
     })
 
 
+# ============ 产物下载 ============
+
+@app.route('/api/jobs/<job_id>/artifacts', methods=['GET'])
+def download_artifacts(job_id):
+    """
+    下载任务产物（免Token认证）
+
+    Returns:
+        产物tar.gz文件，如果不存在返回404
+    """
+    job = job_db.get_job(job_id)
+
+    if not job:
+        return jsonify({'error': 'Job not found'}), 404
+
+    # 检查是否已过期
+    if job.get('is_expired'):
+        return jsonify({'error': 'Artifacts expired', 'message': '产物已过期'}), 410
+
+    # 检查产物是否存在
+    artifacts_path = job.get('artifacts_path')
+    if not artifacts_path or not os.path.exists(artifacts_path):
+        return jsonify({'error': 'Artifacts not found', 'message': '产物不存在或未生成'}), 404
+
+    # 返回文件
+    try:
+        return send_file(
+            artifacts_path,
+            as_attachment=True,
+            download_name=f"{job_id}-artifacts.tar.gz",
+            mimetype='application/gzip'
+        )
+    except Exception as e:
+        return jsonify({'error': 'Download failed', 'message': str(e)}), 500
+
+
+# ============ 配额管理 ============
+
+@app.route('/api/admin/quota', methods=['GET'])
+def get_quota():
+    """
+    获取配额信息（免Token认证）
+
+    Returns:
+        配额统计信息
+    """
+    try:
+        quota_info = quota_manager.get_quota_info()
+        return jsonify(quota_info)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ============ 特殊用户管理 ============
+
+@app.route('/api/admin/special-users', methods=['GET'])
+def list_special_users():
+    """
+    获取特殊用户列表（免Token认证）
+
+    Returns:
+        特殊用户列表
+    """
+    try:
+        users = job_db.get_all_special_users()
+
+        # 添加使用量信息
+        for user in users:
+            user['used_bytes'] = job_db.calculate_disk_usage(user['user_id'])
+            user['quota_gb'] = user['quota_bytes'] / (1024 * 1024 * 1024)
+            user['used_gb'] = user['used_bytes'] / (1024 * 1024 * 1024)
+            user['usage_percent'] = round(user['used_bytes'] / user['quota_bytes'] * 100, 2) if user['quota_bytes'] > 0 else 0
+
+        return jsonify({'special_users': users})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/admin/special-users', methods=['POST'])
+@require_auth
+def add_special_user():
+    """
+    添加特殊用户（需要Token认证）
+
+    请求体: {
+        "user_id": "alice",
+        "quota_gb": 50
+    }
+    """
+    data = request.json
+
+    if not data or 'user_id' not in data or 'quota_gb' not in data:
+        return jsonify({'error': 'Missing required fields: user_id, quota_gb'}), 400
+
+    user_id = data['user_id']
+    quota_gb = float(data['quota_gb'])
+
+    if quota_gb <= 0:
+        return jsonify({'error': 'quota_gb must be positive'}), 400
+
+    try:
+        success = job_db.add_special_user(user_id, quota_gb)
+
+        if success:
+            return jsonify({
+                'success': True,
+                'message': f'已添加特殊用户 {user_id} (配额: {quota_gb}GB)'
+            })
+        else:
+            return jsonify({'error': 'Failed to add special user'}), 500
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/admin/special-users/<user_id>', methods=['PUT'])
+@require_auth
+def update_special_user(user_id):
+    """
+    更新特殊用户配额（需要Token认证）
+
+    请求体: {
+        "quota_gb": 100
+    }
+    """
+    data = request.json
+
+    if not data or 'quota_gb' not in data:
+        return jsonify({'error': 'Missing required field: quota_gb'}), 400
+
+    quota_gb = float(data['quota_gb'])
+
+    if quota_gb <= 0:
+        return jsonify({'error': 'quota_gb must be positive'}), 400
+
+    try:
+        success = job_db.update_special_user_quota(user_id, quota_gb)
+
+        if success:
+            return jsonify({
+                'success': True,
+                'message': f'已更新用户 {user_id} 配额为 {quota_gb}GB'
+            })
+        else:
+            return jsonify({'error': 'User not found or update failed'}), 404
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/admin/special-users/<user_id>', methods=['DELETE'])
+@require_auth
+def delete_special_user(user_id):
+    """
+    删除特殊用户（需要Token认证）
+    """
+    try:
+        success = job_db.delete_special_user(user_id)
+
+        if success:
+            return jsonify({
+                'success': True,
+                'message': f'已删除特殊用户 {user_id}'
+            })
+        else:
+            return jsonify({'error': 'User not found or delete failed'}), 404
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 # ============ Web界面 ============
 
 @app.route('/')
@@ -575,8 +761,9 @@ WEB_TEMPLATE = '''<!DOCTYPE html>
             border: 1px solid #eee;
             border-radius: 4px;
             margin-bottom: 10px;
-            cursor: pointer;
             transition: all 0.2s;
+            display: flex;
+            align-items: center;
         }
         .job-item:hover { background: #f9f9f9; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
 
@@ -741,12 +928,211 @@ WEB_TEMPLATE = '''<!DOCTYPE html>
             font-family: monospace;
             font-size: 12px;
         }
+
+        /* 主导航标签 */
+        .main-tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 30px;
+            border-bottom: 2px solid #eee;
+        }
+        .main-tab {
+            padding: 12px 24px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 500;
+            color: #666;
+            border-bottom: 3px solid transparent;
+            transition: all 0.3s;
+        }
+        .main-tab:hover {
+            color: #007bff;
+            background: #f9f9f9;
+        }
+        .main-tab.active {
+            color: #007bff;
+            border-bottom-color: #007bff;
+        }
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
+        }
+
+        /* 配额管理样式 */
+        .quota-overview, .users-section, .special-users-section {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .quota-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+        .quota-card {
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            text-align: center;
+        }
+        .quota-card h3 {
+            color: #666;
+            font-size: 14px;
+            margin-bottom: 10px;
+        }
+        .quota-value {
+            font-size: 32px;
+            font-weight: bold;
+            color: #333;
+        }
+        .quota-percent {
+            font-size: 14px;
+            color: #666;
+            margin-top: 5px;
+        }
+        .quota-progress-bar {
+            height: 30px;
+            background: #e9ecef;
+            border-radius: 15px;
+            overflow: hidden;
+            margin: 20px 0;
+        }
+        .quota-progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #28a745, #20c997);
+            transition: width 0.3s, background 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+        }
+        .quota-progress-fill.warning {
+            background: linear-gradient(90deg, #ffc107, #ff9800);
+        }
+        .quota-progress-fill.danger {
+            background: linear-gradient(90deg, #dc3545, #c82333);
+        }
+
+        .quota-detail {
+            display: flex;
+            gap: 30px;
+            font-size: 16px;
+            color: #666;
+        }
+        .quota-detail span {
+            font-weight: bold;
+            color: #333;
+        }
+
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        .btn-primary {
+            padding: 8px 16px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .btn-primary:hover {
+            background: #0056b3;
+        }
+        .btn-danger {
+            padding: 6px 12px;
+            background: #dc3545;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+        }
+        .btn-danger:hover {
+            background: #c82333;
+        }
+
+        .user-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px;
+            border: 1px solid #eee;
+            border-radius: 4px;
+            margin-bottom: 10px;
+        }
+        .user-info {
+            flex: 1;
+        }
+        .user-name {
+            font-size: 16px;
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 5px;
+        }
+        .user-quota {
+            font-size: 14px;
+            color: #666;
+        }
+        .user-progress {
+            height: 6px;
+            background: #e9ecef;
+            border-radius: 3px;
+            overflow: hidden;
+            margin-top: 8px;
+        }
+        .user-progress-fill {
+            height: 100%;
+            background: #007bff;
+            transition: width 0.3s;
+        }
+        .user-actions {
+            display: flex;
+            gap: 8px;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+            color: #333;
+        }
+        .form-group input {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        .form-group input:focus {
+            outline: none;
+            border-color: #007bff;
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>🚀 Remote CI Dashboard</h1>
 
+        <!-- 主导航标签 -->
+        <div class="main-tabs">
+            <div class="main-tab active" onclick="showMainTab('jobs')">📋 任务列表</div>
+            <div class="main-tab" onclick="showMainTab('quota')">💾 配额管理</div>
+        </div>
+
+        <!-- 任务列表页面 -->
+        <div id="tab-jobs" class="tab-content active">
         <div class="jobs-container">
             <div class="jobs-header">
                 <h2>任务列表</h2>
@@ -805,6 +1191,50 @@ WEB_TEMPLATE = '''<!DOCTYPE html>
                 <code>curl -X POST .../api/jobs/git -d '{"repo":"https://...","branch":"main","script":"npm test"}'</code>
             </div>
         </div>
+        </div>
+        <!-- /任务列表页面 -->
+
+        <!-- 配额管理页面 -->
+        <div id="tab-quota" class="tab-content" style="display:none;">
+            <div class="quota-overview">
+                <h2>配额使用情况</h2>
+                <div class="quota-cards">
+                    <div class="quota-card">
+                        <h3>总配额</h3>
+                        <div class="quota-value" id="quota-total">200 GB</div>
+                    </div>
+                    <div class="quota-card">
+                        <h3>已使用</h3>
+                        <div class="quota-value" id="quota-used">-</div>
+                        <div class="quota-percent" id="quota-percent">-</div>
+                    </div>
+                    <div class="quota-card">
+                        <h3>可用</h3>
+                        <div class="quota-value" id="quota-available">-</div>
+                    </div>
+                </div>
+                <div class="quota-progress-bar">
+                    <div class="quota-progress-fill" id="quota-progress-fill" style="width: 0%"></div>
+                </div>
+            </div>
+
+            <div class="users-section">
+                <h2>普通用户共享配额</h2>
+                <div class="quota-detail">
+                    <div>共享配额：<span id="normal-quota">-</span></div>
+                    <div>已使用：<span id="normal-used">-</span> (<span id="normal-percent">-</span>)</div>
+                </div>
+            </div>
+
+            <div class="special-users-section">
+                <div class="section-header">
+                    <h2>特殊用户管理</h2>
+                    <button class="btn-primary" onclick="showAddUserModal()">+ 添加特殊用户</button>
+                </div>
+                <div id="special-users-list"></div>
+            </div>
+        </div>
+        <!-- /配额管理页面 -->
     </div>
 
     <div class="modal" id="log-modal">
@@ -819,174 +1249,33 @@ WEB_TEMPLATE = '''<!DOCTYPE html>
         </div>
     </div>
 
-    <script>
-        // API Token仅用于创建任务等写操作，查看历史和日志无需Token
-        const API_TOKEN = sessionStorage.getItem('ci_token') || '';
+    <div class="modal" id="user-modal">
+        <div class="modal-content" style="max-width: 500px;">
+            <div class="modal-header">
+                <h3 id="user-modal-title">添加特殊用户</h3>
+                <button class="close-btn" onclick="closeUserModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="user-id-input">用户ID</label>
+                    <input type="text" id="user-id-input" placeholder="例如: alice">
+                </div>
+                <div class="form-group">
+                    <label for="quota-input">配额 (GB)</label>
+                    <input type="number" id="quota-input" placeholder="例如: 50" min="1">
+                </div>
+                <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                    <button class="btn-primary" onclick="saveUser()">保存</button>
+                    <button class="btn-danger" onclick="closeUserModal()">取消</button>
+                </div>
+            </div>
+        </div>
+    </div>
 
-        function showMode(mode) {
-            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-            document.querySelectorAll('.mode-desc').forEach(d => d.style.display = 'none');
-            event.target.classList.add('active');
-            document.getElementById('mode-' + mode).style.display = 'block';
-        }
-
-        async function apiCall(url) {
-            const response = await fetch(url, {
-                headers: { 'Authorization': `Bearer ${API_TOKEN}` }
-            });
-            if (response.status === 401) {
-                sessionStorage.removeItem('ci_token');
-                alert('认证失败，请刷新页面重新输入Token');
-                throw new Error('Unauthorized');
-            }
-            return response;
-        }
-
-        async function loadStats() {
-            try {
-                // 统计接口已改为免Token
-                const response = await fetch('/api/stats');
-                const stats = await response.json();
-
-                document.getElementById('stat-running').textContent = stats.running || 0;
-                document.getElementById('stat-queued').textContent = stats.queued || 0;
-                document.getElementById('stat-workers').textContent = stats.workers || 0;
-            } catch (e) {
-                console.error('Failed to load stats:', e);
-            }
-        }
-
-        async function loadJobs() {
-            try {
-                // 构建查询参数
-                const params = new URLSearchParams({ per_page: '50' });
-
-                // 添加用户ID筛选
-                const userId = document.getElementById('user-id-filter').value.trim();
-                if (userId) {
-                    params.append('user_id', userId);
-                }
-
-                // 使用免Token的历史接口
-                const response = await fetch(`/api/jobs/history?${params}`);
-                const data = await response.json();
-
-                const jobList = document.getElementById('job-list');
-                const filterResult = document.getElementById('filter-result');
-
-                // 显示查询结果数量
-                if (userId) {
-                    filterResult.textContent = `找到 ${data.total} 条匹配记录`;
-                } else {
-                    filterResult.textContent = `共 ${data.total} 条记录`;
-                }
-
-                if (data.jobs.length === 0) {
-                    if (userId) {
-                        jobList.innerHTML = `<div class="empty-state">未找到包含 "${userId}" 的用户ID<br><small>提示：支持部分匹配，例如输入"alice"可以匹配"alice"、"alice-test"等</small></div>`;
-                    } else {
-                        jobList.innerHTML = '<div class="empty-state">暂无任务记录</div>';
-                    }
-                    return;
-                }
-
-                jobList.innerHTML = data.jobs.map(job => `
-                    <div class="job-item" onclick="showLogs('${job.job_id}')">
-                        <div class="job-header">
-                            <span class="job-id">${job.project_name ? `${job.project_name} - ` : ''}${job.job_id}</span>
-                            <div class="badges">
-                                ${job.mode ? `<span class="badge mode">${job.mode}</span>` : ''}
-                                <span class="badge status ${job.status}">${getStatusText(job.status)}</span>
-                            </div>
-                        </div>
-                        <div class="job-info">
-                            ${job.user_id ? `👤 ${job.user_id} ` : ''}
-                            ${job.created_at ? `📅 ${formatTime(job.created_at)} ` : ''}
-                            ${job.duration ? `⏱ ${job.duration.toFixed(1)}s` : ''}
-                        </div>
-                    </div>
-                `).join('');
-            } catch (e) {
-                console.error('Failed to load jobs:', e);
-            }
-        }
-
-        function clearFilter() {
-            document.getElementById('user-id-filter').value = '';
-            document.getElementById('filter-result').textContent = '';
-            loadData();
-        }
-
-        async function showLogs(jobId) {
-            document.getElementById('log-modal').style.display = 'block';
-            document.getElementById('modal-title').textContent = `任务日志 - ${jobId}`;
-            document.getElementById('log-content').textContent = '加载中...';
-
-            try {
-                // 使用免Token的历史接口
-                const response = await fetch(`/api/jobs/history/${jobId}/logs`);
-                const logs = await response.text();
-                document.getElementById('log-content').textContent = logs || '暂无日志';
-            } catch (e) {
-                document.getElementById('log-content').textContent = '加载日志失败: ' + e.message;
-            }
-        }
-
-        function closeModal() {
-            document.getElementById('log-modal').style.display = 'none';
-        }
-
-        function getStatusText(status) {
-            const map = {
-                'queued': '队列中',
-                'running': '执行中',
-                'success': '成功',
-                'failed': '失败',
-                'error': '错误',
-                'timeout': '超时'
-            };
-            return map[status] || status;
-        }
-
-        function formatTime(isoString) {
-            try {
-                // 解析UTC时间，转换为UTC+8显示
-                const date = new Date(isoString);
-                // 转换为UTC+8时区
-                const utc8Date = new Date(date.getTime() + (8 * 60 * 60 * 1000));
-
-                // 格式化为 YYYY-MM-DD HH:mm:ss
-                const year = utc8Date.getUTCFullYear();
-                const month = String(utc8Date.getUTCMonth() + 1).padStart(2, '0');
-                const day = String(utc8Date.getUTCDate()).padStart(2, '0');
-                const hours = String(utc8Date.getUTCHours()).padStart(2, '0');
-                const minutes = String(utc8Date.getUTCMinutes()).padStart(2, '0');
-                const seconds = String(utc8Date.getUTCSeconds()).padStart(2, '0');
-                return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
-            } catch (e) {
-                return isoString;
-            }
-        }
-
-        async function loadData() {
-            await Promise.all([loadStats(), loadJobs()]);
-        }
-
-        // 自动刷新
-        setInterval(() => {
-            if (document.getElementById('auto-refresh').checked) {
-                loadData();
-            }
-        }, 5000);
-
-        // 点击模态框外部关闭
-        document.getElementById('log-modal').addEventListener('click', (e) => {
-            if (e.target.id === 'log-modal') closeModal();
-        });
-
-        // 初始加载
-        loadData();
-    </script>
+    <!-- JavaScript 文件引用 -->
+    <script src="/static/js/main.js"></script>
+    <script src="/static/js/jobs.js"></script>
+    <script src="/static/js/quota.js"></script>
 </body>
 </html>'''
 
