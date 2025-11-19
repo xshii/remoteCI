@@ -911,45 +911,6 @@ WEB_TEMPLATE = '''<!DOCTYPE html>
             font-size: 14px;
         }
         .clear-filter-btn:hover { background: #5a6268; }
-
-        .mode-tabs {
-            margin-bottom: 20px;
-            padding: 20px;
-            background: white;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        .mode-tabs h3 { margin-bottom: 15px; color: #333; font-size: 16px; }
-        .tabs {
-            display: flex;
-            gap: 10px;
-        }
-        .tab {
-            padding: 8px 16px;
-            border: 1px solid #ddd;
-            background: #f9f9f9;
-            cursor: pointer;
-            border-radius: 4px;
-            font-size: 14px;
-        }
-        .tab:hover { background: #e9e9e9; }
-        .tab.active { background: #007bff; color: white; border-color: #007bff; }
-        .mode-desc {
-            margin-top: 15px;
-            padding: 15px;
-            background: #f8f9fa;
-            border-left: 3px solid #007bff;
-            font-size: 13px;
-            color: #666;
-            line-height: 1.6;
-        }
-        .mode-desc code {
-            background: #e9ecef;
-            padding: 2px 6px;
-            border-radius: 3px;
-            font-family: monospace;
-            font-size: 12px;
-        }
     </style>
 </head>
 <body>
@@ -986,33 +947,6 @@ WEB_TEMPLATE = '''<!DOCTYPE html>
             <div class="stat-card">
                 <h3>Worker数量</h3>
                 <div class="value" id="stat-workers">-</div>
-            </div>
-        </div>
-
-        <div class="mode-tabs">
-            <h3>使用说明</h3>
-            <div class="tabs">
-                <div class="tab active" onclick="showMode('rsync')">rsync模式</div>
-                <div class="tab" onclick="showMode('upload')">上传模式</div>
-                <div class="tab" onclick="showMode('git')">Git模式</div>
-            </div>
-            <div id="mode-rsync" class="mode-desc">
-                <strong>rsync模式（推荐）</strong><br>
-                1. 使用rsync同步代码到服务器的workspace目录<br>
-                2. 调用API触发构建<br>
-                <code>rsync -avz ./ ci-user@remote-ci:/var/ci-workspace/myproject/</code><br>
-                <code>curl -X POST .../api/jobs/rsync -d '{"workspace":"/var/ci-workspace/myproject","script":"npm test"}'</code>
-            </div>
-            <div id="mode-upload" class="mode-desc" style="display:none;">
-                <strong>上传模式</strong><br>
-                直接上传代码包（tar.gz）到远程CI<br>
-                <code>tar -czf code.tar.gz .</code><br>
-                <code>curl -X POST .../api/jobs/upload -F "code=@code.tar.gz" -F "script=npm test"</code>
-            </div>
-            <div id="mode-git" class="mode-desc" style="display:none;">
-                <strong>Git模式</strong><br>
-                远程CI直接克隆Git仓库<br>
-                <code>curl -X POST .../api/jobs/git -d '{"repo":"https://...","branch":"main","script":"npm test"}'</code>
             </div>
         </div>
         </div>

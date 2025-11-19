@@ -1,12 +1,5 @@
 // ===== 任务列表页签功能 =====
 
-function showMode(mode) {
-    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-    document.querySelectorAll('.mode-desc').forEach(d => d.style.display = 'none');
-    event.target.classList.add('active');
-    document.getElementById('mode-' + mode).style.display = 'block';
-}
-
 async function loadStats() {
     try {
         // 统计接口已改为免Token
