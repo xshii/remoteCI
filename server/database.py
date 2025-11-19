@@ -5,6 +5,7 @@ SQLite数据库模块 - 任务历史记录
 
 import sqlite3
 import json
+import logging
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional, Dict, List, Any
@@ -13,6 +14,10 @@ import threading
 # 定义时区
 UTC = timezone.utc
 UTC8 = timezone(timedelta(hours=8))
+
+# 配置日志
+logger = logging.getLogger('remoteCI.database')
+logger.setLevel(logging.DEBUG)
 
 
 class JobDatabase:
@@ -24,8 +29,10 @@ class JobDatabase:
         # 确保数据库文件的父目录存在
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
 
-        # 打印数据库路径 - 用于调试
-        print(f"[数据库初始化] 路径: {self.db_path}")
+        # 记录数据库路径 - 用于调试
+        logger.info(f"[数据库初始化] 路径: {self.db_path}")
+        logger.info(f"[数据库初始化] 文件存在: {Path(db_path).exists()}")
+        print(f"[数据库初始化] 路径: {self.db_path}")  # 保留 print 用于控制台
         print(f"[数据库初始化] 文件存在: {Path(db_path).exists()}")
 
         self._init_db()
@@ -131,6 +138,7 @@ class JobDatabase:
         Returns:
             bool: 是否创建成功
         """
+        logger.info(f"[数据库写入] 准备创建任务记录: job_id={job_id}, mode={job_data.get('mode')}, user_id={job_data.get('user_id')}")
         print(f"[数据库写入] 准备创建任务记录")
         print(f"  数据库路径: {self.db_path}")
         print(f"  任务ID: {job_id}")
@@ -167,6 +175,7 @@ class JobDatabase:
             cursor.execute('SELECT COUNT(*) FROM ci_jobs WHERE job_id = ?', (job_id,))
             count = cursor.fetchone()[0]
 
+            logger.info(f"✓ 任务记录创建成功: job_id={job_id}, 验证={count}条, 文件大小={Path(self.db_path).stat().st_size}B")
             print(f"✓ 任务记录创建成功")
             print(f"  验证查询: 找到 {count} 条记录")
             print(f"  数据库文件大小: {Path(self.db_path).stat().st_size} 字节")
@@ -174,6 +183,7 @@ class JobDatabase:
             return True
 
         except Exception as e:
+            logger.error(f"✗ 创建任务记录失败: job_id={job_id}, error={e}")
             print(f"✗ 创建任务记录失败: {e}")
             import traceback
             traceback.print_exc()
@@ -189,6 +199,7 @@ class JobDatabase:
         Returns:
             bool: 是否更新成功
         """
+        logger.info(f"[数据库更新] 更新任务开始状态: job_id={job_id}")
         print(f"[数据库更新] 更新任务开始状态")
         print(f"  数据库路径: {self.db_path}")
         print(f"  任务ID: {job_id}")
@@ -206,6 +217,7 @@ class JobDatabase:
             rows_affected = cursor.rowcount
             conn.commit()
 
+            logger.info(f"✓ 任务状态更新为 running: job_id={job_id}, 影响{rows_affected}行")
             print(f"✓ 任务状态更新为 running，影响 {rows_affected} 行")
 
             return True
@@ -228,6 +240,7 @@ class JobDatabase:
         Returns:
             bool: 是否更新成功
         """
+        logger.info(f"[数据库更新] 更新任务完成状态: job_id={job_id}, status={status}")
         print(f"[数据库更新] 更新任务完成状态")
         print(f"  数据库路径: {self.db_path}")
         print(f"  任务ID: {job_id}")
@@ -259,6 +272,7 @@ class JobDatabase:
             rows_affected = cursor.rowcount
             conn.commit()
 
+            logger.info(f"✓ 任务状态更新为 {status}: job_id={job_id}, 影响{rows_affected}行")
             print(f"✓ 任务状态更新为 {status}，影响 {rows_affected} 行")
 
             return True
@@ -306,6 +320,7 @@ class JobDatabase:
         Returns:
             任务列表
         """
+        logger.info(f"[数据库查询] 查询任务列表: limit={limit}, offset={offset}, filters={filters}")
         print(f"[数据库查询] 查询任务列表")
         print(f"  数据库路径: {self.db_path}")
         print(f"  limit={limit}, offset={offset}, filters={filters}")
@@ -348,6 +363,7 @@ class JobDatabase:
             cursor.execute(query, params)
             rows = cursor.fetchall()
 
+            logger.info(f"✓ 查询完成，返回 {len(rows)} 条记录")
             print(f"✓ 查询完成，返回 {len(rows)} 条记录")
 
             # 显示前几条的简要信息
