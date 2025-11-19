@@ -929,35 +929,169 @@ WEB_TEMPLATE = '''<!DOCTYPE html>
             font-size: 12px;
         }
 
-        /* 主导航标签 */
-        .main-tabs {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 30px;
-            border-bottom: 2px solid #eee;
-        }
-        .main-tab {
-            padding: 12px 24px;
+        .btn-primary {
+            padding: 8px 16px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
             cursor: pointer;
-            font-size: 16px;
-            font-weight: 500;
+            font-size: 14px;
+        }
+        .btn-primary:hover {
+            background: #0056b3;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 Remote CI Dashboard</h1>
+        <div class="jobs-container">
+            <div class="jobs-header">
+                <h2>任务列表</h2>
+                <div class="controls">
+                    <input type="text" id="user-id-filter" class="filter-input" placeholder="按用户ID筛选（支持部分匹配）..." onkeypress="if(event.key==='Enter')loadData()">
+                    <button class="clear-filter-btn" onclick="clearFilter()">清除</button>
+                    <span id="filter-result" style="margin-left: 10px; color: #666; font-size: 14px;"></span>
+                    <div class="auto-refresh">
+                        <input type="checkbox" id="auto-refresh" checked>
+                        <label for="auto-refresh">自动刷新 (5s)</label>
+                    </div>
+                    <button class="refresh-btn" onclick="loadData()">刷新</button>
+                </div>
+            </div>
+            <div class="job-list" id="job-list"></div>
+        </div>
+
+        <div class="stats">
+            <div class="stat-card">
+                <h3>执行中</h3>
+                <div class="value" id="stat-running">-</div>
+            </div>
+            <div class="stat-card">
+                <h3>队列中</h3>
+                <div class="value" id="stat-queued">-</div>
+            </div>
+            <div class="stat-card">
+                <h3>Worker数量</h3>
+                <div class="value" id="stat-workers">-</div>
+            </div>
+        </div>
+
+        <div class="mode-tabs">
+            <h3>使用说明</h3>
+            <div class="tabs">
+                <div class="tab active" onclick="showMode('rsync')">rsync模式</div>
+                <div class="tab" onclick="showMode('upload')">上传模式</div>
+                <div class="tab" onclick="showMode('git')">Git模式</div>
+            </div>
+            <div id="mode-rsync" class="mode-desc">
+                <strong>rsync模式（推荐）</strong><br>
+                1. 使用rsync同步代码到服务器的workspace目录<br>
+                2. 调用API触发构建<br>
+                <code>rsync -avz ./ ci-user@remote-ci:/var/ci-workspace/myproject/</code><br>
+                <code>curl -X POST .../api/jobs/rsync -d '{"workspace":"/var/ci-workspace/myproject","script":"npm test"}'</code>
+            </div>
+            <div id="mode-upload" class="mode-desc" style="display:none;">
+                <strong>上传模式</strong><br>
+                直接上传代码包（tar.gz）到远程CI<br>
+                <code>tar -czf code.tar.gz .</code><br>
+                <code>curl -X POST .../api/jobs/upload -F "code=@code.tar.gz" -F "script=npm test"</code>
+            </div>
+            <div id="mode-git" class="mode-desc" style="display:none;">
+                <strong>Git模式</strong><br>
+                远程CI直接克隆Git仓库<br>
+                <code>curl -X POST .../api/jobs/git -d '{"repo":"https://...","branch":"main","script":"npm test"}'</code>
+            </div>
+        </div>
+        </div>
+    </div>
+
+    <div class="modal" id="log-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="modal-title">任务日志</h3>
+                <button class="close-btn" onclick="closeModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="log-content" id="log-content">加载中...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- JavaScript 文件引用 -->
+    <script src="/static/js/main.js"></script>
+    <script src="/static/js/jobs.js"></script>
+</body>
+</html>'''
+
+
+@app.route('/adminx')
+def adminx():
+    """管理页面（配额管理）"""
+    return render_template_string(ADMIN_TEMPLATE)
+
+
+# 管理页面HTML模板
+ADMIN_TEMPLATE = '''<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Remote CI - 配额管理</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #f5f5f5;
+            padding: 20px;
+        }
+        .container { max-width: 1400px; margin: 0 auto; }
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .subtitle {
             color: #666;
-            border-bottom: 3px solid transparent;
-            transition: all 0.3s;
+            font-size: 14px;
+            margin-bottom: 20px;
         }
-        .main-tab:hover {
-            color: #007bff;
-            background: #f9f9f9;
+        .header-actions {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
         }
-        .main-tab.active {
-            color: #007bff;
-            border-bottom-color: #007bff;
+        .btn-secondary {
+            padding: 8px 16px;
+            background: #6c757d;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            text-decoration: none;
+            display: inline-block;
         }
-        .tab-content {
-            display: none;
+        .btn-secondary:hover {
+            background: #5a6268;
         }
-        .tab-content.active {
-            display: block;
+        .btn-link {
+            padding: 8px 16px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            text-decoration: none;
+            display: inline-block;
+        }
+        .btn-link:hover {
+            background: #0056b3;
         }
 
         /* 配额管理样式 */
@@ -1119,138 +1253,101 @@ WEB_TEMPLATE = '''<!DOCTYPE html>
             outline: none;
             border-color: #007bff;
         }
+
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: rgba(0,0,0,0.5);
+            z-index: 1000;
+        }
+        .modal-content {
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            width: 90%;
+            max-width: 500px;
+            border-radius: 8px;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+        .modal-header {
+            padding: 20px;
+            border-bottom: 1px solid #eee;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .modal-body {
+            padding: 20px;
+        }
+        .close-btn {
+            background: none;
+            border: none;
+            font-size: 28px;
+            cursor: pointer;
+            color: #999;
+            line-height: 1;
+        }
+        .close-btn:hover { color: #333; }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>🚀 Remote CI Dashboard</h1>
-
-        <!-- 主导航标签 -->
-        <div class="main-tabs">
-            <div class="main-tab active" onclick="showMainTab('jobs')">📋 任务列表</div>
-            <div class="main-tab" onclick="showMainTab('quota')">💾 配额管理</div>
+        <div class="header-actions">
+            <div>
+                <h1>💾 Remote CI - 配额管理</h1>
+                <div class="subtitle">管理磁盘配额和特殊用户</div>
+            </div>
+            <div>
+                <a href="/" class="btn-link">返回任务列表</a>
+            </div>
         </div>
 
-        <!-- 任务列表页面 -->
-        <div id="tab-jobs" class="tab-content active">
-        <div class="jobs-container">
-            <div class="jobs-header">
-                <h2>任务列表</h2>
-                <div class="controls">
-                    <input type="text" id="user-id-filter" class="filter-input" placeholder="按用户ID筛选（支持部分匹配）..." onkeypress="if(event.key==='Enter')loadData()">
-                    <button class="clear-filter-btn" onclick="clearFilter()">清除</button>
-                    <span id="filter-result" style="margin-left: 10px; color: #666; font-size: 14px;"></span>
-                    <div class="auto-refresh">
-                        <input type="checkbox" id="auto-refresh" checked>
-                        <label for="auto-refresh">自动刷新 (5s)</label>
-                    </div>
-                    <button class="refresh-btn" onclick="loadData()">刷新</button>
+        <div class="quota-overview">
+            <h2>配额使用情况</h2>
+            <div class="quota-cards">
+                <div class="quota-card">
+                    <h3>总配额</h3>
+                    <div class="quota-value" id="quota-total">200 GB</div>
+                </div>
+                <div class="quota-card">
+                    <h3>已使用</h3>
+                    <div class="quota-value" id="quota-used">-</div>
+                    <div class="quota-percent" id="quota-percent">-</div>
+                </div>
+                <div class="quota-card">
+                    <h3>可用</h3>
+                    <div class="quota-value" id="quota-available">-</div>
                 </div>
             </div>
-            <div class="job-list" id="job-list"></div>
-        </div>
-
-        <div class="stats">
-            <div class="stat-card">
-                <h3>执行中</h3>
-                <div class="value" id="stat-running">-</div>
-            </div>
-            <div class="stat-card">
-                <h3>队列中</h3>
-                <div class="value" id="stat-queued">-</div>
-            </div>
-            <div class="stat-card">
-                <h3>Worker数量</h3>
-                <div class="value" id="stat-workers">-</div>
+            <div class="quota-progress-bar">
+                <div class="quota-progress-fill" id="quota-progress-fill" style="width: 0%"></div>
             </div>
         </div>
 
-        <div class="mode-tabs">
-            <h3>使用说明</h3>
-            <div class="tabs">
-                <div class="tab active" onclick="showMode('rsync')">rsync模式</div>
-                <div class="tab" onclick="showMode('upload')">上传模式</div>
-                <div class="tab" onclick="showMode('git')">Git模式</div>
-            </div>
-            <div id="mode-rsync" class="mode-desc">
-                <strong>rsync模式（推荐）</strong><br>
-                1. 使用rsync同步代码到服务器的workspace目录<br>
-                2. 调用API触发构建<br>
-                <code>rsync -avz ./ ci-user@remote-ci:/var/ci-workspace/myproject/</code><br>
-                <code>curl -X POST .../api/jobs/rsync -d '{"workspace":"/var/ci-workspace/myproject","script":"npm test"}'</code>
-            </div>
-            <div id="mode-upload" class="mode-desc" style="display:none;">
-                <strong>上传模式</strong><br>
-                直接上传代码包（tar.gz）到远程CI<br>
-                <code>tar -czf code.tar.gz .</code><br>
-                <code>curl -X POST .../api/jobs/upload -F "code=@code.tar.gz" -F "script=npm test"</code>
-            </div>
-            <div id="mode-git" class="mode-desc" style="display:none;">
-                <strong>Git模式</strong><br>
-                远程CI直接克隆Git仓库<br>
-                <code>curl -X POST .../api/jobs/git -d '{"repo":"https://...","branch":"main","script":"npm test"}'</code>
+        <div class="users-section">
+            <h2>普通用户共享配额</h2>
+            <div class="quota-detail">
+                <div>共享配额：<span id="normal-quota">-</span></div>
+                <div>已使用：<span id="normal-used">-</span> (<span id="normal-percent">-</span>)</div>
             </div>
         </div>
-        </div>
-        <!-- /任务列表页面 -->
 
-        <!-- 配额管理页面 -->
-        <div id="tab-quota" class="tab-content" style="display:none;">
-            <div class="quota-overview">
-                <h2>配额使用情况</h2>
-                <div class="quota-cards">
-                    <div class="quota-card">
-                        <h3>总配额</h3>
-                        <div class="quota-value" id="quota-total">200 GB</div>
-                    </div>
-                    <div class="quota-card">
-                        <h3>已使用</h3>
-                        <div class="quota-value" id="quota-used">-</div>
-                        <div class="quota-percent" id="quota-percent">-</div>
-                    </div>
-                    <div class="quota-card">
-                        <h3>可用</h3>
-                        <div class="quota-value" id="quota-available">-</div>
-                    </div>
-                </div>
-                <div class="quota-progress-bar">
-                    <div class="quota-progress-fill" id="quota-progress-fill" style="width: 0%"></div>
-                </div>
+        <div class="special-users-section">
+            <div class="section-header">
+                <h2>特殊用户管理</h2>
+                <button class="btn-primary" onclick="showAddUserModal()">+ 添加特殊用户</button>
             </div>
-
-            <div class="users-section">
-                <h2>普通用户共享配额</h2>
-                <div class="quota-detail">
-                    <div>共享配额：<span id="normal-quota">-</span></div>
-                    <div>已使用：<span id="normal-used">-</span> (<span id="normal-percent">-</span>)</div>
-                </div>
-            </div>
-
-            <div class="special-users-section">
-                <div class="section-header">
-                    <h2>特殊用户管理</h2>
-                    <button class="btn-primary" onclick="showAddUserModal()">+ 添加特殊用户</button>
-                </div>
-                <div id="special-users-list"></div>
-            </div>
-        </div>
-        <!-- /配额管理页面 -->
-    </div>
-
-    <div class="modal" id="log-modal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3 id="modal-title">任务日志</h3>
-                <button class="close-btn" onclick="closeModal()">&times;</button>
-            </div>
-            <div class="modal-body">
-                <div class="log-content" id="log-content">加载中...</div>
-            </div>
+            <div id="special-users-list"></div>
         </div>
     </div>
 
     <div class="modal" id="user-modal">
-        <div class="modal-content" style="max-width: 500px;">
+        <div class="modal-content">
             <div class="modal-header">
                 <h3 id="user-modal-title">添加特殊用户</h3>
                 <button class="close-btn" onclick="closeUserModal()">&times;</button>
@@ -1273,9 +1370,7 @@ WEB_TEMPLATE = '''<!DOCTYPE html>
     </div>
 
     <!-- JavaScript 文件引用 -->
-    <script src="/static/js/main.js"></script>
-    <script src="/static/js/jobs.js"></script>
-    <script src="/static/js/quota.js"></script>
+    <script src="/static/js/admin.js"></script>
 </body>
 </html>'''
 

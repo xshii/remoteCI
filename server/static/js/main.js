@@ -51,31 +51,12 @@ function formatTime(isoString) {
     }
 }
 
-// ===== 标签切换 =====
-
-function showMainTab(tabName) {
-    // 切换标签
-    document.querySelectorAll('.main-tab').forEach(t => t.classList.remove('active'));
-    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-
-    event.target.classList.add('active');
-    document.getElementById('tab-' + tabName).classList.add('active');
-
-    // 加载对应数据
-    if (tabName === 'quota') {
-        loadQuotaData();
-    }
-}
-
 // ===== 初始化 =====
 
 // 点击模态框外部关闭
 document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('log-modal').addEventListener('click', (e) => {
         if (e.target.id === 'log-modal') closeModal();
-    });
-    document.getElementById('user-modal').addEventListener('click', (e) => {
-        if (e.target.id === 'user-modal') closeUserModal();
     });
 
     // 初始加载任务列表页面
