@@ -9,11 +9,17 @@
 # 终端 1: 启动 Flask
 cd /home/user/remoteCI
 python3 -m server.app
+
+# 终端 2: 启动 Celery Worker
+cd /home/user/remoteCI
+celery -A server.celery_app worker --loglevel=info
 ```
 
 **日志显示位置：**
 - ✅ **直接显示在当前终端窗口**
-- 所有 print 输出都会实时显示
+- 所有 print 输出和 logging 日志都会实时显示
+- Flask 日志同时保存到：`{DATA_DIR}/logs/app.log`
+- Celery 日志同时保存到：`{DATA_DIR}/logs/celery_worker.log`
 
 **示例输出：**
 ```

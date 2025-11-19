@@ -12,7 +12,9 @@
 
 ### 1. 查看日志 `/api/debug/logs`
 
-查看最近的应用日志，包括所有数据库操作。
+查看最近的 Flask 应用日志，包括所有数据库操作。
+
+**注意：** Celery Worker 的日志在单独的文件中：`{DATA_DIR}/logs/celery_worker.log`
 
 **请求：**
 ```bash
