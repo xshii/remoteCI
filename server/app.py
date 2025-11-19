@@ -801,6 +801,19 @@ WEB_TEMPLATE = '''<!DOCTYPE html>
 
         .job-info { font-size: 14px; color: #666; }
 
+        .btn-primary {
+            padding: 8px 16px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            white-space: nowrap;
+            align-self: center;
+        }
+        .btn-primary:hover { background: #0056b3; }
+
         .modal {
             display: none;
             position: fixed;
@@ -937,211 +950,13 @@ WEB_TEMPLATE = '''<!DOCTYPE html>
             font-family: monospace;
             font-size: 12px;
         }
-
-        /* 主导航标签 */
-        .main-tabs {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 30px;
-            border-bottom: 2px solid #eee;
-        }
-        .main-tab {
-            padding: 12px 24px;
-            cursor: pointer;
-            font-size: 16px;
-            font-weight: 500;
-            color: #666;
-            border-bottom: 3px solid transparent;
-            transition: all 0.3s;
-        }
-        .main-tab:hover {
-            color: #007bff;
-            background: #f9f9f9;
-        }
-        .main-tab.active {
-            color: #007bff;
-            border-bottom-color: #007bff;
-        }
-        .tab-content {
-            display: none;
-        }
-        .tab-content.active {
-            display: block;
-        }
-
-        /* 配额管理样式 */
-        .quota-overview, .users-section, .special-users-section {
-            background: white;
-            border-radius: 8px;
-            padding: 20px;
-            margin-bottom: 20px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        .quota-cards {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 15px;
-            margin: 20px 0;
-        }
-        .quota-card {
-            padding: 20px;
-            background: #f8f9fa;
-            border-radius: 8px;
-            text-align: center;
-        }
-        .quota-card h3 {
-            color: #666;
-            font-size: 14px;
-            margin-bottom: 10px;
-        }
-        .quota-value {
-            font-size: 32px;
-            font-weight: bold;
-            color: #333;
-        }
-        .quota-percent {
-            font-size: 14px;
-            color: #666;
-            margin-top: 5px;
-        }
-        .quota-progress-bar {
-            height: 30px;
-            background: #e9ecef;
-            border-radius: 15px;
-            overflow: hidden;
-            margin: 20px 0;
-        }
-        .quota-progress-fill {
-            height: 100%;
-            background: linear-gradient(90deg, #28a745, #20c997);
-            transition: width 0.3s, background 0.3s;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: white;
-            font-weight: bold;
-        }
-        .quota-progress-fill.warning {
-            background: linear-gradient(90deg, #ffc107, #ff9800);
-        }
-        .quota-progress-fill.danger {
-            background: linear-gradient(90deg, #dc3545, #c82333);
-        }
-
-        .quota-detail {
-            display: flex;
-            gap: 30px;
-            font-size: 16px;
-            color: #666;
-        }
-        .quota-detail span {
-            font-weight: bold;
-            color: #333;
-        }
-
-        .section-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 20px;
-        }
-        .btn-primary {
-            padding: 8px 16px;
-            background: #007bff;
-            color: white;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 14px;
-        }
-        .btn-primary:hover {
-            background: #0056b3;
-        }
-        .btn-danger {
-            padding: 6px 12px;
-            background: #dc3545;
-            color: white;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 13px;
-        }
-        .btn-danger:hover {
-            background: #c82333;
-        }
-
-        .user-item {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 15px;
-            border: 1px solid #eee;
-            border-radius: 4px;
-            margin-bottom: 10px;
-        }
-        .user-info {
-            flex: 1;
-        }
-        .user-name {
-            font-size: 16px;
-            font-weight: bold;
-            color: #333;
-            margin-bottom: 5px;
-        }
-        .user-quota {
-            font-size: 14px;
-            color: #666;
-        }
-        .user-progress {
-            height: 6px;
-            background: #e9ecef;
-            border-radius: 3px;
-            overflow: hidden;
-            margin-top: 8px;
-        }
-        .user-progress-fill {
-            height: 100%;
-            background: #007bff;
-            transition: width 0.3s;
-        }
-        .user-actions {
-            display: flex;
-            gap: 8px;
-        }
-        .form-group {
-            margin-bottom: 15px;
-        }
-        .form-group label {
-            display: block;
-            margin-bottom: 5px;
-            font-weight: 500;
-            color: #333;
-        }
-        .form-group input {
-            width: 100%;
-            padding: 8px 12px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            font-size: 14px;
-        }
-        .form-group input:focus {
-            outline: none;
-            border-color: #007bff;
-        }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>🚀 Remote CI Dashboard</h1>
 
-        <!-- 主导航标签 -->
-        <div class="main-tabs">
-            <div class="main-tab active" onclick="showMainTab('jobs', event)">📋 任务列表</div>
-            <div class="main-tab" onclick="showMainTab('quota', event)">💾 配额管理</div>
-        </div>
-
         <!-- 任务列表页面 -->
-        <div id="tab-jobs" class="tab-content active">
         <div class="jobs-container">
             <div class="jobs-header">
                 <h2>任务列表</h2>
@@ -1201,49 +1016,6 @@ WEB_TEMPLATE = '''<!DOCTYPE html>
             </div>
         </div>
         </div>
-        <!-- /任务列表页面 -->
-
-        <!-- 配额管理页面 -->
-        <div id="tab-quota" class="tab-content" style="display:none;">
-            <div class="quota-overview">
-                <h2>配额使用情况</h2>
-                <div class="quota-cards">
-                    <div class="quota-card">
-                        <h3>总配额</h3>
-                        <div class="quota-value" id="quota-total">200 GB</div>
-                    </div>
-                    <div class="quota-card">
-                        <h3>已使用</h3>
-                        <div class="quota-value" id="quota-used">-</div>
-                        <div class="quota-percent" id="quota-percent">-</div>
-                    </div>
-                    <div class="quota-card">
-                        <h3>可用</h3>
-                        <div class="quota-value" id="quota-available">-</div>
-                    </div>
-                </div>
-                <div class="quota-progress-bar">
-                    <div class="quota-progress-fill" id="quota-progress-fill" style="width: 0%"></div>
-                </div>
-            </div>
-
-            <div class="users-section">
-                <h2>普通用户共享配额</h2>
-                <div class="quota-detail">
-                    <div>共享配额：<span id="normal-quota">-</span></div>
-                    <div>已使用：<span id="normal-used">-</span> (<span id="normal-percent">-</span>)</div>
-                </div>
-            </div>
-
-            <div class="special-users-section">
-                <div class="section-header">
-                    <h2>特殊用户管理</h2>
-                    <button class="btn-primary" onclick="showAddUserModal()">+ 添加特殊用户</button>
-                </div>
-                <div id="special-users-list"></div>
-            </div>
-        </div>
-        <!-- /配额管理页面 -->
     </div>
 
     <div class="modal" id="log-modal">
@@ -1258,33 +1030,9 @@ WEB_TEMPLATE = '''<!DOCTYPE html>
         </div>
     </div>
 
-    <div class="modal" id="user-modal">
-        <div class="modal-content" style="max-width: 500px;">
-            <div class="modal-header">
-                <h3 id="user-modal-title">添加特殊用户</h3>
-                <button class="close-btn" onclick="closeUserModal()">&times;</button>
-            </div>
-            <div class="modal-body">
-                <div class="form-group">
-                    <label for="user-id-input">用户ID</label>
-                    <input type="text" id="user-id-input" placeholder="例如: alice">
-                </div>
-                <div class="form-group">
-                    <label for="quota-input">配额 (GB)</label>
-                    <input type="number" id="quota-input" placeholder="例如: 50" min="1">
-                </div>
-                <div style="display: flex; gap: 10px; justify-content: flex-end;">
-                    <button class="btn-primary" onclick="saveUser()">保存</button>
-                    <button class="btn-danger" onclick="closeUserModal()">取消</button>
-                </div>
-            </div>
-        </div>
-    </div>
-
     <!-- JavaScript 文件引用 -->
     <script src="/static/js/main.js"></script>
     <script src="/static/js/jobs.js"></script>
-    <script src="/static/js/quota.js"></script>
 </body>
 </html>'''
 

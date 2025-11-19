@@ -51,52 +51,12 @@ function formatTime(isoString) {
     }
 }
 
-// ===== 标签切换 =====
-
-function showMainTab(tabName, evt) {
-    // 切换标签
-    document.querySelectorAll('.main-tab').forEach(t => t.classList.remove('active'));
-    document.querySelectorAll('.tab-content').forEach(c => {
-        c.classList.remove('active');
-        c.style.display = 'none';
-    });
-
-    // 激活选中的标签和内容
-    const clickedTab = evt ? evt.target : document.querySelector(`.main-tab[onclick*="${tabName}"]`);
-    if (clickedTab) {
-        clickedTab.classList.add('active');
-    }
-
-    const tabContent = document.getElementById('tab-' + tabName);
-    if (tabContent) {
-        tabContent.classList.add('active');
-        tabContent.style.display = 'block';
-    }
-
-    // 加载对应数据
-    if (tabName === 'quota') {
-        loadQuotaData();
-    }
-}
-
-// ===== 模态框管理 =====
-
-function closeUserModal() {
-    const modal = document.getElementById('user-modal');
-    if (modal) {
-        modal.style.display = 'none';
-    }
-}
-
 // ===== 初始化 =====
 
 // 点击模态框外部关闭
 document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('log-modal').addEventListener('click', (e) => {
         if (e.target.id === 'log-modal') closeModal();
-    });
-    document.getElementById('user-modal').addEventListener('click', (e) => {
-        if (e.target.id === 'user-modal') closeUserModal();
     });
 
     // 初始加载任务列表页面
