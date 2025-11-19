@@ -756,20 +756,38 @@ def get_debug_logs():
     Query参数:
       - lines: 返回最后几行（默认100，最大1000）
       - filter: 过滤关键词（可选）
+      - source: 日志来源 (flask|celery|all，默认all)
     """
     try:
         lines = min(request.args.get('lines', 100, type=int), 1000)
         filter_keyword = request.args.get('filter', '')
+        source = request.args.get('source', 'all')
 
-        if not os.path.exists(LOG_FILE):
+        log_files = []
+
+        # 根据 source 参数选择日志文件
+        if source in ['flask', 'all']:
+            if os.path.exists(LOG_FILE):
+                log_files.append(('flask', LOG_FILE))
+
+        if source in ['celery', 'all']:
+            celery_log = Path(DATA_DIR) / 'logs' / 'celery_worker.log'
+            if os.path.exists(celery_log):
+                log_files.append(('celery', str(celery_log)))
+
+        if not log_files:
             return jsonify({
                 'error': '日志文件不存在',
-                'log_file': str(LOG_FILE)
+                'flask_log': str(LOG_FILE),
+                'celery_log': str(Path(DATA_DIR) / 'logs' / 'celery_worker.log')
             }), 404
 
-        # 读取日志文件
-        with open(LOG_FILE, 'r', encoding='utf-8', errors='replace') as f:
-            all_lines = f.readlines()
+        # 合并所有日志
+        all_lines = []
+        for log_source, log_path in log_files:
+            with open(log_path, 'r', encoding='utf-8', errors='replace') as f:
+                for line in f:
+                    all_lines.append(f"[{log_source}] {line}")
 
         # 过滤
         if filter_keyword:
@@ -779,7 +797,7 @@ def get_debug_logs():
         log_lines = all_lines[-lines:] if len(all_lines) > lines else all_lines
 
         return jsonify({
-            'log_file': str(LOG_FILE),
+            'sources': [src for src, _ in log_files],
             'total_lines': len(all_lines),
             'returned_lines': len(log_lines),
             'filter': filter_keyword if filter_keyword else None,
