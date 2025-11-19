@@ -23,6 +23,11 @@ class JobDatabase:
         self._local = threading.local()
         # 确保数据库文件的父目录存在
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+
+        # 打印数据库路径 - 用于调试
+        print(f"[数据库初始化] 路径: {self.db_path}")
+        print(f"[数据库初始化] 文件存在: {Path(db_path).exists()}")
+
         self._init_db()
 
     def _get_conn(self):
@@ -126,6 +131,12 @@ class JobDatabase:
         Returns:
             bool: 是否创建成功
         """
+        print(f"[数据库写入] 准备创建任务记录")
+        print(f"  数据库路径: {self.db_path}")
+        print(f"  任务ID: {job_id}")
+        print(f"  模式: {job_data.get('mode', 'unknown')}")
+        print(f"  用户ID: {job_data.get('user_id', 'N/A')}")
+
         try:
             conn = self._get_conn()
             cursor = conn.cursor()
@@ -151,10 +162,21 @@ class JobDatabase:
             ))
 
             conn.commit()
+
+            # 验证写入
+            cursor.execute('SELECT COUNT(*) FROM ci_jobs WHERE job_id = ?', (job_id,))
+            count = cursor.fetchone()[0]
+
+            print(f"✓ 任务记录创建成功")
+            print(f"  验证查询: 找到 {count} 条记录")
+            print(f"  数据库文件大小: {Path(self.db_path).stat().st_size} 字节")
+
             return True
 
         except Exception as e:
             print(f"✗ 创建任务记录失败: {e}")
+            import traceback
+            traceback.print_exc()
             return False
 
     def update_job_started(self, job_id: str) -> bool:
@@ -167,6 +189,10 @@ class JobDatabase:
         Returns:
             bool: 是否更新成功
         """
+        print(f"[数据库更新] 更新任务开始状态")
+        print(f"  数据库路径: {self.db_path}")
+        print(f"  任务ID: {job_id}")
+
         try:
             conn = self._get_conn()
             cursor = conn.cursor()
@@ -177,11 +203,17 @@ class JobDatabase:
                 WHERE job_id = ?
             ''', (datetime.now(UTC).replace(tzinfo=None).isoformat() + 'Z', job_id))
 
+            rows_affected = cursor.rowcount
             conn.commit()
+
+            print(f"✓ 任务状态更新为 running，影响 {rows_affected} 行")
+
             return True
 
         except Exception as e:
             print(f"✗ 更新任务开始状态失败: {e}")
+            import traceback
+            traceback.print_exc()
             return False
 
     def update_job_finished(self, job_id: str, status: str, result: Optional[Dict[str, Any]] = None) -> bool:
@@ -196,6 +228,11 @@ class JobDatabase:
         Returns:
             bool: 是否更新成功
         """
+        print(f"[数据库更新] 更新任务完成状态")
+        print(f"  数据库路径: {self.db_path}")
+        print(f"  任务ID: {job_id}")
+        print(f"  最终状态: {status}")
+
         try:
             conn = self._get_conn()
             cursor = conn.cursor()
@@ -219,11 +256,17 @@ class JobDatabase:
                 job_id
             ))
 
+            rows_affected = cursor.rowcount
             conn.commit()
+
+            print(f"✓ 任务状态更新为 {status}，影响 {rows_affected} 行")
+
             return True
 
         except Exception as e:
             print(f"✗ 更新任务完成状态失败: {e}")
+            import traceback
+            traceback.print_exc()
             return False
 
     def get_job(self, job_id: str) -> Optional[Dict[str, Any]]:
@@ -263,6 +306,10 @@ class JobDatabase:
         Returns:
             任务列表
         """
+        print(f"[数据库查询] 查询任务列表")
+        print(f"  数据库路径: {self.db_path}")
+        print(f"  limit={limit}, offset={offset}, filters={filters}")
+
         try:
             conn = self._get_conn()
             cursor = conn.cursor()
@@ -295,8 +342,19 @@ class JobDatabase:
             query += ' ORDER BY created_at DESC LIMIT ? OFFSET ?'
             params.extend([limit, offset])
 
+            print(f"  执行SQL: {query}")
+            print(f"  参数: {params}")
+
             cursor.execute(query, params)
             rows = cursor.fetchall()
+
+            print(f"✓ 查询完成，返回 {len(rows)} 条记录")
+
+            # 显示前几条的简要信息
+            if rows:
+                print(f"  前3条记录:")
+                for i, row in enumerate(rows[:3], 1):
+                    print(f"    {i}. {row['job_id'][:30]}... | {row['status']} | {row['mode']}")
 
             return [dict(row) for row in rows]
 
