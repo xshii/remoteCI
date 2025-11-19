@@ -120,6 +120,39 @@ class QuotaManager:
         total_used = self.db.calculate_disk_usage()
         normal_used = total_used - special_used_total
 
+        # 获取所有普通用户的使用情况
+        normal_users_info = []
+        try:
+            conn = self.db._get_conn()
+            cursor = conn.cursor()
+
+            # 查询所有有任务的用户（排除特殊用户和 NULL）
+            cursor.execute('''
+                SELECT DISTINCT user_id
+                FROM ci_jobs
+                WHERE user_id IS NOT NULL AND is_expired = 0
+            ''')
+            all_users = {row[0] for row in cursor.fetchall()}
+
+            # 过滤出普通用户
+            normal_user_ids = all_users - special_user_ids
+
+            # 计算每个普通用户的使用量
+            for user_id in sorted(normal_user_ids):
+                used = self.db.calculate_disk_usage(user_id)
+                if used > 0:  # 只显示有使用量的用户
+                    normal_users_info.append({
+                        'user_id': user_id,
+                        'used_bytes': used,
+                        'usage_percent': round(used / normal_quota * 100, 2) if normal_quota > 0 else 0
+                    })
+
+            # 按使用量降序排序
+            normal_users_info.sort(key=lambda x: x['used_bytes'], reverse=True)
+
+        except Exception as e:
+            print(f"✗ 获取普通用户信息失败: {e}")
+
         return {
             'total_bytes': self.TOTAL_QUOTA_BYTES,
             'used_bytes': total_used,
@@ -128,7 +161,8 @@ class QuotaManager:
             'special_users': special_users_info,
             'normal_users_quota': normal_quota,
             'normal_users_used': normal_used,
-            'normal_users_usage_percent': round(normal_used / normal_quota * 100, 2) if normal_quota > 0 else 0
+            'normal_users_usage_percent': round(normal_used / normal_quota * 100, 2) if normal_quota > 0 else 0,
+            'normal_users': normal_users_info
         }
 
     def check_and_cleanup(self, user_id: str = None) -> Tuple[bool, int]:

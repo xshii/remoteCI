@@ -62,6 +62,34 @@ async function loadQuotaInfo() {
         document.getElementById('normal-used').textContent = formatGB(data.normal_users_used);
         document.getElementById('normal-percent').textContent = data.normal_users_usage_percent.toFixed(1) + '%';
 
+        // 显示普通用户列表
+        const normalUsersList = document.getElementById('normal-users-list');
+        if (data.normal_users && data.normal_users.length > 0) {
+            normalUsersList.innerHTML = `
+                <h3 style="font-size: 16px; color: #666; margin-bottom: 15px;">用户使用情况</h3>
+                ${data.normal_users.map(user => {
+                    const usedMB = (user.used_bytes / (1024 * 1024)).toFixed(2);
+                    const progressClass = user.usage_percent >= 70 ? 'danger' : (user.usage_percent >= 50 ? 'warning' : '');
+                    return `
+                        <div class="user-item" style="margin-bottom: 10px;">
+                            <div class="user-info">
+                                <div class="user-name">👤 ${escapeHtml(user.user_id)}</div>
+                                <div class="user-quota">
+                                    已用: ${usedMB} MB |
+                                    占共享配额: ${user.usage_percent.toFixed(2)}%
+                                </div>
+                                <div class="user-progress">
+                                    <div class="user-progress-fill ${progressClass}" style="width: ${Math.min(user.usage_percent, 100)}%"></div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }).join('')}
+            `;
+        } else {
+            normalUsersList.innerHTML = '<div style="color: #999; font-size: 14px; padding: 10px 0;">暂无普通用户使用配额</div>';
+        }
+
     } catch (e) {
         console.error('加载配额信息失败:', e);
         alert('加载配额信息失败: ' + e.message);
