@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  # Remote CI - All-in-One (使用 Supervisor 管理所有服务)
+  remote-ci:
+    build:
+      context: ..
+      dockerfile: test/Dockerfile.supervisor
+    container_name: remoteCI-supervisor
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+      - "5555:5555"
+    environment:
+      - CI_API_HOST=0.0.0.0
+      - CI_API_PORT=5000
+      - CI_API_TOKEN=${CI_API_TOKEN:-test-token-only}
+      - CI_BROKER_URL=redis://localhost:6379/0
+      - CI_RESULT_BACKEND=redis://localhost:6379/0
+      - CI_DATA_DIR=/app/data
+      - CI_WORK_DIR=/tmp/remote-ci
+      - CI_WORKSPACE_DIR=/var/ci-workspace
+      - CI_MAX_CONCURRENT=${CI_MAX_CONCURRENT:-2}
+      - CI_JOB_TIMEOUT=${CI_JOB_TIMEOUT:-3600}
+    volumes:
+      - ../data:/app/data
+      - ci_workspace:/var/ci-workspace
+      - ci_work:/tmp/remote-ci
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  ci_workspace:
+    driver: local
+  ci_work:
+    driver: local
