@@ -9,7 +9,7 @@ import json
 from datetime import datetime
 from pathlib import Path
 from functools import wraps
-from flask import Flask, request, jsonify, send_file, render_template_string
+from flask import Flask, request, jsonify, send_file, render_template_string, render_template
 from werkzeug.utils import secure_filename
 from celery.result import AsyncResult
 
@@ -22,8 +22,11 @@ from server.tasks import execute_build
 from server.database import JobDatabase
 from server.quota_manager import QuotaManager
 
-# 配置静态文件目录
-app = Flask(__name__, static_folder='static', static_url_path='/static')
+# 配置静态文件目录和模板目录
+app = Flask(__name__,
+            static_folder='static',
+            static_url_path='/static',
+            template_folder='templates')
 app.config['MAX_CONTENT_LENGTH'] = MAX_UPLOAD_SIZE
 
 # 初始化数据库
@@ -698,6 +701,12 @@ def index():
     return render_template_string(WEB_TEMPLATE)
 
 
+@app.route('/adminx')
+def adminx():
+    """管理中心（免Token认证）"""
+    return render_template('adminx.html')
+
+
 # Web界面HTML模板
 WEB_TEMPLATE = '''<!DOCTYPE html>
 <html lang="zh-CN">
@@ -1127,8 +1136,8 @@ WEB_TEMPLATE = '''<!DOCTYPE html>
 
         <!-- 主导航标签 -->
         <div class="main-tabs">
-            <div class="main-tab active" onclick="showMainTab('jobs')">📋 任务列表</div>
-            <div class="main-tab" onclick="showMainTab('quota')">💾 配额管理</div>
+            <div class="main-tab active" onclick="showMainTab('jobs', event)">📋 任务列表</div>
+            <div class="main-tab" onclick="showMainTab('quota', event)">💾 配额管理</div>
         </div>
 
         <!-- 任务列表页面 -->
