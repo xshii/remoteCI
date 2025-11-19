@@ -9,6 +9,8 @@ Celery任务定义
 import os
 import subprocess
 import shutil
+import logging
+from logging.handlers import RotatingFileHandler
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from celery import Task
@@ -21,6 +23,53 @@ from server.quota_manager import QuotaManager
 # 定义时区
 UTC = timezone.utc
 UTC8 = timezone(timedelta(hours=8))
+
+# 配置 Celery Worker 日志
+def setup_celery_logging():
+    """配置 Celery Worker 日志系统"""
+    log_dir = Path(DATA_DIR) / 'logs'
+    log_dir.mkdir(parents=True, exist_ok=True)
+
+    log_file = log_dir / 'celery_worker.log'
+
+    # 配置日志记录器
+    logger = logging.getLogger('remoteCI.celery')
+    logger.setLevel(logging.INFO)
+
+    # 文件处理器
+    file_handler = RotatingFileHandler(
+        log_file,
+        maxBytes=10*1024*1024,  # 10MB
+        backupCount=5,
+        encoding='utf-8'
+    )
+    file_handler.setLevel(logging.INFO)
+    formatter = logging.Formatter(
+        '%(asctime)s [%(levelname)s] %(name)s: %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    file_handler.setFormatter(formatter)
+
+    # 控制台处理器
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+    console_handler.setFormatter(formatter)
+
+    logger.addHandler(file_handler)
+    logger.addHandler(console_handler)
+
+    # 记录启动信息
+    logger.info("=" * 60)
+    logger.info("Celery Worker 启动")
+    logger.info(f"数据目录: {DATA_DIR}")
+    logger.info(f"数据库路径: {DATA_DIR}/jobs.db")
+    logger.info(f"日志文件: {log_file}")
+    logger.info("=" * 60)
+
+    return logger
+
+# 设置日志
+celery_logger = setup_celery_logging()
 
 # 初始化数据库连接
 job_db = JobDatabase(f"{DATA_DIR}/jobs.db")
@@ -93,6 +142,9 @@ def execute_build(self, job_data):
         self.update_state(state=state, meta=meta)
 
     try:
+        # 记录任务开始
+        celery_logger.info(f"[任务开始] task_id={task_id}, mode={job_data.get('mode')}, user_id={job_data.get('user_id')}")
+
         # 更新数据库状态为运行中
         job_db.update_job_started(task_id)
 
@@ -278,6 +330,9 @@ def execute_build(self, job_data):
         # 更新数据库状态为完成
         job_db.update_job_finished(task_id, status, result)
 
+        # 记录任务完成
+        celery_logger.info(f"[任务完成] task_id={task_id}, status={status}, duration={duration:.2f}s, exit_code={build_result.returncode}")
+
         # 更新文件大小信息
         log_size = 0
         if os.path.exists(log_file):
@@ -316,10 +371,13 @@ def execute_build(self, job_data):
         log(f"超时限制: {JOB_TIMEOUT} 秒")
         log("=" * 70)
 
+        duration = (datetime.now(UTC8) - start_time).total_seconds()
+        celery_logger.error(f"[任务超时] task_id={task_id}, duration={duration:.2f}s, timeout={JOB_TIMEOUT}s")
+
         result = {
             'status': 'timeout',
             'exit_code': -1,
-            'duration': (datetime.now(UTC8) - start_time).total_seconds(),
+            'duration': duration,
             'error': 'Task timeout'
         }
 
@@ -333,10 +391,13 @@ def execute_build(self, job_data):
         log(f"✗ 任务执行错误: {str(e)}")
         log("=" * 70)
 
+        duration = (datetime.now(UTC8) - start_time).total_seconds()
+        celery_logger.error(f"[任务错误] task_id={task_id}, error={str(e)}, duration={duration:.2f}s")
+
         result = {
             'status': 'error',
             'exit_code': -2,
-            'duration': (datetime.now(UTC8) - start_time).total_seconds(),
+            'duration': duration,
             'error': str(e)
         }
 

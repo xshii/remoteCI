@@ -6,6 +6,8 @@ Remote CI Flask API服务
 
 import os
 import json
+import logging
+from logging.handlers import RotatingFileHandler
 from datetime import datetime
 from pathlib import Path
 from functools import wraps
@@ -22,9 +24,63 @@ from server.tasks import execute_build
 from server.database import JobDatabase
 from server.quota_manager import QuotaManager
 
+# 配置日志系统
+def setup_logging():
+    """配置日志系统，输出到文件和控制台"""
+    # 确保日志目录存在
+    log_dir = Path(DATA_DIR) / 'logs'
+    log_dir.mkdir(parents=True, exist_ok=True)
+
+    # 日志文件路径
+    log_file = log_dir / 'app.log'
+
+    # 配置根日志记录器
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.INFO)
+
+    # 文件处理器 (带轮转，最大10MB，保留5个文件)
+    file_handler = RotatingFileHandler(
+        log_file,
+        maxBytes=10*1024*1024,  # 10MB
+        backupCount=5,
+        encoding='utf-8'
+    )
+    file_handler.setLevel(logging.INFO)
+    file_formatter = logging.Formatter(
+        '%(asctime)s [%(levelname)s] %(name)s: %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    file_handler.setFormatter(file_formatter)
+
+    # 控制台处理器
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+    console_formatter = logging.Formatter(
+        '[%(levelname)s] %(message)s'
+    )
+    console_handler.setFormatter(console_formatter)
+
+    # 添加处理器
+    root_logger.addHandler(file_handler)
+    root_logger.addHandler(console_handler)
+
+    # 记录启动信息
+    logger = logging.getLogger('remoteCI.app')
+    logger.info("=" * 60)
+    logger.info("Remote CI 服务启动")
+    logger.info(f"数据目录: {DATA_DIR}")
+    logger.info(f"数据库路径: {DATA_DIR}/jobs.db")
+    logger.info(f"日志文件: {log_file}")
+    logger.info("=" * 60)
+
+    return log_file
+
 # 配置静态文件目录
 app = Flask(__name__, static_folder='static', static_url_path='/static')
 app.config['MAX_CONTENT_LENGTH'] = MAX_UPLOAD_SIZE
+
+# 设置日志
+LOG_FILE = setup_logging()
 
 # 初始化数据库
 job_db = JobDatabase(f"{DATA_DIR}/jobs.db")
@@ -685,6 +741,178 @@ def delete_special_user(user_id):
             })
         else:
             return jsonify({'error': 'User not found or delete failed'}), 404
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ============ 调试和诊断接口 ============
+
+@app.route('/api/debug/logs', methods=['GET'])
+def get_debug_logs():
+    """
+    获取最近的日志（免Token认证，方便调试）
+
+    Query参数:
+      - lines: 返回最后几行（默认100，最大1000）
+      - filter: 过滤关键词（可选）
+      - source: 日志来源 (flask|celery|all，默认all)
+    """
+    try:
+        lines = min(request.args.get('lines', 100, type=int), 1000)
+        filter_keyword = request.args.get('filter', '')
+        source = request.args.get('source', 'all')
+
+        log_files = []
+
+        # 根据 source 参数选择日志文件
+        if source in ['flask', 'all']:
+            if os.path.exists(LOG_FILE):
+                log_files.append(('flask', LOG_FILE))
+
+        if source in ['celery', 'all']:
+            celery_log = Path(DATA_DIR) / 'logs' / 'celery_worker.log'
+            if os.path.exists(celery_log):
+                log_files.append(('celery', str(celery_log)))
+
+        if not log_files:
+            return jsonify({
+                'error': '日志文件不存在',
+                'flask_log': str(LOG_FILE),
+                'celery_log': str(Path(DATA_DIR) / 'logs' / 'celery_worker.log')
+            }), 404
+
+        # 合并所有日志
+        all_lines = []
+        for log_source, log_path in log_files:
+            with open(log_path, 'r', encoding='utf-8', errors='replace') as f:
+                for line in f:
+                    all_lines.append(f"[{log_source}] {line}")
+
+        # 过滤
+        if filter_keyword:
+            all_lines = [line for line in all_lines if filter_keyword in line]
+
+        # 获取最后N行
+        log_lines = all_lines[-lines:] if len(all_lines) > lines else all_lines
+
+        return jsonify({
+            'sources': [src for src, _ in log_files],
+            'total_lines': len(all_lines),
+            'returned_lines': len(log_lines),
+            'filter': filter_keyword if filter_keyword else None,
+            'logs': log_lines
+        })
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/debug/db-info', methods=['GET'])
+def get_db_info():
+    """
+    获取数据库信息（免Token认证）
+
+    包含：
+    - 数据库文件路径
+    - 文件大小
+    - 任务统计
+    - 最近的数据库操作日志
+    """
+    try:
+        db_path = f"{DATA_DIR}/jobs.db"
+
+        info = {
+            'database_path': db_path,
+            'data_dir': DATA_DIR,
+        }
+
+        # 检查文件是否存在
+        if os.path.exists(db_path):
+            stat = os.stat(db_path)
+            info['file_exists'] = True
+            info['file_size'] = stat.st_size
+            info['file_size_mb'] = round(stat.st_size / 1024 / 1024, 2)
+            info['last_modified'] = datetime.fromtimestamp(stat.st_mtime).isoformat()
+
+            # 获取任务统计
+            total_jobs = job_db.count_jobs()
+            info['total_jobs'] = total_jobs
+
+            # 按状态统计
+            import sqlite3
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+            cursor.execute('SELECT status, COUNT(*) FROM ci_jobs GROUP BY status')
+            info['jobs_by_status'] = {row[0]: row[1] for row in cursor.fetchall()}
+            conn.close()
+
+        else:
+            info['file_exists'] = False
+            info['total_jobs'] = 0
+
+        # 读取最近的数据库操作日志
+        try:
+            with open(LOG_FILE, 'r', encoding='utf-8', errors='replace') as f:
+                all_lines = f.readlines()
+
+            # 过滤数据库相关的日志
+            db_logs = [line.strip() for line in all_lines if '数据库' in line or 'database' in line.lower()]
+            info['recent_db_operations'] = db_logs[-20:]  # 最近20条
+        except Exception:
+            info['recent_db_operations'] = []
+
+        return jsonify(info)
+
+    except Exception as e:
+        import traceback
+        return jsonify({
+            'error': str(e),
+            'traceback': traceback.format_exc()
+        }), 500
+
+
+@app.route('/api/debug/config', methods=['GET'])
+def get_config_info():
+    """
+    获取配置信息（免Token认证）
+
+    显示：
+    - 环境变量
+    - 配置路径
+    - 进程信息
+    """
+    try:
+        import sys
+        import socket
+
+        info = {
+            'environment': {
+                'CI_DATA_DIR': os.getenv('CI_DATA_DIR'),
+                'CI_WORK_DIR': os.getenv('CI_WORK_DIR'),
+                'CI_WORKSPACE_DIR': os.getenv('CI_WORKSPACE_DIR'),
+                'PYTHONUNBUFFERED': os.getenv('PYTHONUNBUFFERED'),
+            },
+            'config': {
+                'DATA_DIR': DATA_DIR,
+                'WORKSPACE_DIR': WORKSPACE_DIR,
+                'API_HOST': API_HOST,
+                'API_PORT': API_PORT,
+            },
+            'system': {
+                'python_version': sys.version,
+                'hostname': socket.gethostname(),
+                'pid': os.getpid(),
+                'cwd': os.getcwd(),
+            },
+            'database': {
+                'path': f"{DATA_DIR}/jobs.db",
+                'exists': os.path.exists(f"{DATA_DIR}/jobs.db"),
+            },
+            'log_file': str(LOG_FILE),
+        }
+
+        return jsonify(info)
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
