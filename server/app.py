@@ -211,7 +211,19 @@ def create_upload_job():
     saved_filename = f"{project_name}-{timestamp}-{unique_id}-{filename}"
     upload_path = f"{DATA_DIR}/uploads/{saved_filename}"
 
+    # 确保目录存在
+    os.makedirs(os.path.dirname(upload_path), exist_ok=True)
+
     code_file.save(upload_path)
+
+    # 验证文件已保存
+    if not os.path.exists(upload_path):
+        return jsonify({'error': f'Failed to save file to {upload_path}'}), 500
+
+    file_size = os.path.getsize(upload_path)
+    if file_size == 0:
+        os.remove(upload_path)
+        return jsonify({'error': 'Uploaded file is empty'}), 400
 
     # 准备任务数据
     job_data = {

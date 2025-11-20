@@ -135,8 +135,22 @@ def execute_build(self, job_data):
             log(f">>> 步骤 1/3: 解压代码（上传模式）")
             log(f"代码包: {code_archive}")
 
+            # 详细的诊断信息
+            log(f"当前工作目录: {os.getcwd()}")
+            log(f"DATA_DIR: {DATA_DIR}")
+            upload_dir = f"{DATA_DIR}/uploads"
+            log(f"uploads目录存在: {os.path.exists(upload_dir)}")
+            if os.path.exists(upload_dir):
+                files = os.listdir(upload_dir)
+                log(f"uploads目录内容 ({len(files)}个文件): {files[:10]}")  # 只显示前10个
+
             if not os.path.exists(code_archive):
-                raise Exception(f"代码包不存在: {code_archive}")
+                # 提供更多诊断信息
+                error_msg = f"代码包不存在: {code_archive}\n"
+                error_msg += f"  - 绝对路径: {os.path.abspath(code_archive)}\n"
+                error_msg += f"  - uploads目录: {upload_dir}\n"
+                error_msg += f"  - uploads目录存在: {os.path.exists(upload_dir)}"
+                raise Exception(error_msg)
 
             repo_dir = f"{work_dir}/repo"
             Path(repo_dir).mkdir(parents=True, exist_ok=True)
